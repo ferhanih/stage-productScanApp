@@ -1,5 +1,4 @@
 import time
-
 import streamlit as st
 import requests
 import re
@@ -414,7 +413,7 @@ DBS = [
     ("generic", "Open Products Facts","https://world.openproductsfacts.org"),
 ]
 
-
+@st.cache_data(ttl=3600, show_spinner=False)
 def _fetch_off_single(barcode: str, base: str) -> dict | None:
     """
     Single OFF v2 API call:
@@ -474,7 +473,6 @@ def fetch_upc(barcode: str, placeholder) -> tuple[dict | None, str | None, str |
         return product, "generic", "UPCitemdb"
     except requests.exceptions.RequestException:
         return None, None, None
-
 
 def search(barcode: str, placeholder) -> tuple[dict | None, str | None, str | None]:
     """Search pipeline: try OFF first, fall back to UPCitemdb."""
