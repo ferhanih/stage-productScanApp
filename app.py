@@ -8,20 +8,19 @@ st.set_page_config(page_title="ProductScan", page_icon="🔍", layout="wide", in
 
 # ── PALETTE ORO→BRONZO ──────────────────────────────────────
 def get_palette(score):
-    """Restituisce colori dashboard in funzione dello score."""
-    if score >= 80:   # ORO
+    if score >= 80:
         return {"bg":"#FFFBF0","card":"#FFF8E1","accent":"#FFB300","accent2":"#FF8F00",
                 "text":"#4E3B00","sub":"#8D6E00","bar_bg":"#FFE082","medal":"🥇","label":"Eccellente"}
-    elif score >= 60: # ARGENTO DORATO
+    elif score >= 60:
         return {"bg":"#F9F6EE","card":"#F5F0E0","accent":"#C9A84C","accent2":"#A67C2E",
                 "text":"#3D2F00","sub":"#7A6030","bar_bg":"#E8D9A0","medal":"🥈","label":"Buono"}
-    elif score >= 40: # BRONZO
+    elif score >= 40:
         return {"bg":"#F7F0E6","card":"#F0E6D3","accent":"#CD7F32","accent2":"#A0522D",
                 "text":"#3B1F00","sub":"#7A4C20","bar_bg":"#DEB887","medal":"🥉","label":"Nella media"}
-    elif score >= 20: # RAME SCURO
+    elif score >= 20:
         return {"bg":"#F5EDE0","card":"#EDE0CC","accent":"#B87333","accent2":"#8B5A2B",
                 "text":"#3A1500","sub":"#7A3D1A","bar_bg":"#D4A07A","medal":"🔶","label":"Scarso"}
-    else:             # OSSIDATO
+    else:
         return {"bg":"#F0E8D8","card":"#E8D8C0","accent":"#8B6914","accent2":"#6B4F10",
                 "text":"#2C1A00","sub":"#6B4A10","bar_bg":"#C4A060","medal":"⚠️","label":"Molto scarso"}
 
@@ -402,39 +401,58 @@ def render_additivi(p):
     return f'<div class="additivi-section"><div class="additivi-title">⚗️ Additivi ({len(tags)})</div>{pills}{risk_legend}</div>'
 
 # ── DB ────────────────────────────────────────────────────────
-DBS=[("food","Open Food Facts","https://world.openfoodfacts.org"),
-     ("beauty","Open Beauty Facts","https://world.openbeautyfacts.org"),
-     ("generic","Open Products Facts","https://world.openproductsfacts.org")]
+DBS=[
+    ("food","Open Food Facts","https://world.openfoodfacts.org"),
+    ("beauty","Open Beauty Facts","https://world.openbeautyfacts.org"),
+    ("generic","Open Products Facts","https://world.openproductsfacts.org")
+]
 
-def fetch_off(bc,ph):
-    for did,dn,base in DBS:
-        ph.markdown(f'<div class="src-badge">→ {dn}</div>',unsafe_allow_html=True)
+
+def fetch_off(bc, ph):
+    for did, dn, base in DBS:
+        ph.markdown(f"→ {dn}")
         try:
-            r=requests.get(f"{base}/api/v0/product/{bc}.json",timeout=8,headers={"User-Agent":"ProductScan/0.5"})
-            if r.status_code==200:
-                d=r.json()
-                if d.get("status")==1: return d["product"],did,dn
-        except: pass
-    return None,None,None
+            r = requests.get(
+                f"{base}/api/v2/product/{bc}.json",
+                timeout=8,
+                headers={"User-Agent":"ProductScan/0.5"}
+            )
+            if r.status_code == 200:
+                d = r.json()
+                if d.get("status") == 1:
+                    return d["product"], did, dn
+        except:
+            pass
+    return None, None, None
 
-def fetch_upc(bc,ph):
-    ph.markdown('<div class="src-badge">→ UPCitemdb</div>',unsafe_allow_html=True)
+def fetch_upc(bc, ph):
+    ph.markdown("→ UPCitemdb")
     try:
-        r=requests.get(f"https://api.upcitemdb.com/prod/trial/lookup?upc={bc}",timeout=8,headers={"User-Agent":"ProductScan/0.5"})
-        if r.status_code==200:
-            items=r.json().get("items",[])
+        r = requests.get(
+            f"https://api.upcitemdb.com/prod/trial/lookup?upc={bc}",
+            timeout=8,
+            headers={"User-Agent":"ProductScan/0.5"}
+        )
+        if r.status_code == 200:
+            items = r.json().get("items", [])
             if items:
-                i=items[0]
-                return {"product_name":i.get("title",""),"brands":i.get("brand",""),"categories":i.get("category",""),"ingredients_text":i.get("ingredients",""),"image_url":(i.get("images")or[""])[0]}, "generic","UPCitemdb"
-    except: pass
-    return None,None,None
+                i = items[0]
+                return {
+                    "product_name": i.get("title",""),
+                    "brands": i.get("brand",""),
+                    "categories": i.get("category",""),
+                    "ingredients_text": i.get("ingredients",""),
+                    "image_url": (i.get("images") or [""])[0]
+                }, "generic", "UPCitemdb"
+    except:
+        pass
+    return None, None, None
 
-def search(bc,ph):
-    p,d,s=fetch_off(bc,ph)
-    if p: return p,d,s
-    p,d,s=fetch_upc(bc,ph)
-    if p: return p,d,s
-    return None,None,None
+def search(bc, ph):
+    p, d, s = fetch_off(bc, ph)
+    if p:
+        return p, d, s
+    return fetch_upc(bc, ph)
 
 def normalize_query_value(v):
     if isinstance(v, list):
@@ -445,41 +463,56 @@ def normalize_query_value(v):
 def get_suggestions(p, current_score):
     cats = p.get("categories_tags") or []
     candidates = [c for c in reversed(cats) if c.startswith("en:") and len(c) > 5]
+
     if not candidates:
         return ("no_cat", str(cats[:3]))
+
     last_err = ("no_cat", "")
+
     for cat in candidates[:3]:
         try:
             r = requests.get(
-                "https://world.openfoodfacts.org/cgi/search.pl",
+                "https://world.openfoodfacts.org/api/v2/search",
                 params={
-                    "action":"process",
-                    "tagtype_0":"categories","tag_contains_0":"contains","tag_0":cat,
-                    "sort_by":"unique_scans_n","page_size":"15",
-                    "fields":"product_name,brands,nutriscore_grade,nova_group,nutriments,additives_tags,categories_tags,code",
-                    "json":"1"
+                    "categories_tags": cat,
+                    "sort_by": "unique_scans_n",
+                    "page_size": 15,
+                    "fields": "product_name,brands,nutriscore_grade,nova_group,nutriments,additives_tags,categories_tags,code"
                 },
                 timeout=8,
                 headers={"User-Agent":"ProductScan/0.5"}
             )
-            results = []
+
             if r.status_code != 200:
-                last_err = ("http_err", str(r.status_code)); continue
+                last_err = ("http_err", str(r.status_code))
+                continue
+
             prods = r.json().get("products", [])
             if not prods:
-                last_err = ("empty", cat); continue
+                last_err = ("empty", cat)
+                continue
+
+            results = []
             for prod in prods:
-                if not prod.get("product_name"): continue
-                s,_,_,_ = compute_fsa_score(prod)
-                print(s)
+                if not prod.get("product_name"):
+                    continue
+
+                s, _, _, _ = compute_fsa_score(prod)
+
                 if s > current_score + 3:
                     results.append((s, prod))
+
             results.sort(key=lambda x: -x[0])
+
             if results:
                 return results[:4]
+
             last_err = ("none_better", f"score={current_score}")
+
         except Exception as ex:
-            last_err = ("exception", str(ex)[:80]); continue
+            last_err = ("exception", str(ex)[:80])
+            continue
+
     return last_err
 
 # ── HELPERS ──────────────────────────────────────────────────
