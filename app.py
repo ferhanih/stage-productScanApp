@@ -1,3 +1,5 @@
+import time
+
 import streamlit as st
 import requests
 import re
@@ -911,7 +913,10 @@ def main():
     if clicked and bc_input.strip() and bc_input.strip() != chip:
         ph2 = st.empty()
         with st.spinner(""):
+            search_start = time.perf_counter()
             product, did, source = search(bc_input.strip(), ph2)
+            search_end = time.perf_counter()
+        print("time for searchs", search_end - search_start)
         ph2.empty()
         if product:
             if did == "food":
@@ -925,7 +930,10 @@ def main():
         if did == "food":
             render_food(product, score, pos, neg, details, pal)
             with st.spinner("Ricerca alternative…"):
+                sugg_start = time.perf_counter()
                 sugg = get_suggestions(product, score)
+                sugg_end = time.perf_counter()
+            print("time for suggestions", sugg_end - sugg_start)
             render_alternatives(sugg, pal)
         elif did == "beauty":
             st.markdown(f'<div class="section"><div class="section-title">{e(product.get("product_name",""))}</div></div>', unsafe_allow_html=True)
