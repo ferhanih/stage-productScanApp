@@ -8,13 +8,13 @@ from urllib3.util.retry import Retry
 
 st.set_page_config(page_title="ProductScan", page_icon="🔍", layout="wide", initial_sidebar_state="collapsed")
 
-# ── SESSION HTTP (connexion réutilisable + retry automatique) ────────────────
+# ── HTTP SESSION (reusable connection + automatic retry) ─────────────────────
 def _make_session() -> requests.Session:
     """
-    Crée une session HTTP avec :
-    - Retry automatique sur erreurs réseau transitoires (503, 429, 502)
-    - Backoff exponentiel entre les tentatives
-    - User-Agent cohérent
+    Build a shared HTTP session with:
+    - Automatic retry on transient network errors (429, 500, 502, 503, 504)
+    - Exponential backoff between attempts
+    - Consistent User-Agent header
     """
     session = requests.Session()
     retry = Retry(
@@ -37,7 +37,7 @@ _HTTP = _make_session()
 
 # ── PALETTE ORO→BRONZO ──────────────────────────────────────
 def get_palette(score):
-    """Restituisce colori dashboard in funzione dello score."""
+    """Return dashboard color palette based on the given score."""
     if score >= 80:   # ORO
         return {"bg":"#FFFBF0","card":"#FFF8E1","accent":"#FFB300","accent2":"#FF8F00",
                 "text":"#4E3B00","sub":"#8D6E00","bar_bg":"#FFE082","medal":"🥇","label":"Eccellente"}
@@ -394,8 +394,8 @@ def render_additivi(p):
     risk_legend = '<div style="font-family:DM Mono,monospace;font-size:0.62rem;color:#E65100;margin-top:10px;">🔴 Alto rischio &nbsp;🟠 Moderato &nbsp;🟡 Basso rischio</div>'
     return f'<div class="additivi-section"><div class="additivi-title">⚗️ Additivi ({len(tags)})</div>{pills}{risk_legend}</div>'
 
-# ── DB ────────────────────────────────────────────────────────
-# Champs demandés à OFF v2 — réduit la taille de réponse de ~60 %
+# ── DATA SOURCES ─────────────────────────────────────────────
+# Fields requested from OFF v2 — reduces response size by ~60 %
 _OFF_FIELDS = ",".join([
     "product_name", "product_name_it", "product_name_en", "product_name_fr",
     "brands", "categories_tags", "ingredients_text", "ingredients_text_it",
@@ -405,7 +405,7 @@ _OFF_FIELDS = ",".join([
     "image_url", "image_front_url", "code",
 ])
 
-# Sources dans l'ordre de priorité
+# Data sources in priority order
 DBS = [
     ("food",    "Open Food Facts",    "https://world.openfoodfacts.org"),
     ("beauty",  "Open Beauty Facts",  "https://world.openbeautyfacts.org"),
@@ -415,27 +415,27 @@ DBS = [
 
 def _fetch_off_single(barcode: str, base: str) -> dict | None:
     """
-    Appel API OFF v2 :
+    Single OFF v2 API call:
     GET /api/v2/product/{barcode}?fields=…
-    Retourne le dict produit ou None.
+    Returns the product dict or None.
     """
     url = f"{base}/api/v2/product/{barcode}"
     try:
         r = _HTTP.get(url, params={"fields": _OFF_FIELDS}, timeout=(4, 10))
         r.raise_for_status()
         data = r.json()
-        # OFF v2 : status 1 = trouvé, 0 = inconnu
+        # OFF v2: status 1 = found, 0 = unknown
         if data.get("status") == 1 and data.get("product"):
             return data["product"]
     except requests.exceptions.Timeout:
-        pass  # timeout silencieux, on essaie la source suivante
+        pass  # silent timeout — try next source
     except requests.exceptions.RequestException:
         pass
     return None
 
 
 def fetch_off(barcode: str, placeholder) -> tuple[dict | None, str | None, str | None]:
-    """Essaie chaque base OFF dans l'ordre ; retourne (produit, db_id, db_name)."""
+    """Try each OFF database in order; return (product, db_id, db_name)."""
     for db_id, db_name, base in DBS:
         placeholder.markdown(f'<div class="src-badge">→ {db_name}</div>', unsafe_allow_html=True)
         product = _fetch_off_single(barcode, base)
@@ -447,15 +447,15 @@ def fetch_off(barcode: str, placeholder) -> tuple[dict | None, str | None, str |
 def fetch_upc(barcode: str, placeholder) -> tuple[dict | None, str | None, str | None]:
     """
     UPCitemdb trial endpoint.
-    Doc : https://www.upcitemdb.com/wp-content/uploads/2019/09/UPC_database_API_doc_8_20.pdf
-    Retourne un pseudo-produit normalisé ou None.
+    Docs: https://www.upcitemdb.com/wp-content/uploads/2019/09/UPC_database_API_doc_8_20.pdf
+    Returns a normalised pseudo-product dict or None.
     """
     placeholder.markdown('<div class="src-badge">→ UPCitemdb</div>', unsafe_allow_html=True)
     url = "https://api.upcitemdb.com/prod/trial/lookup"
     try:
         r = _HTTP.get(url, params={"upc": barcode}, timeout=(4, 10))
         if r.status_code == 429:
-            # Rate-limit atteint sur le tier gratuit
+            # Rate-limit hit on the free tier
             return None, None, None
         r.raise_for_status()
         items = r.json().get("items") or []
@@ -475,7 +475,7 @@ def fetch_upc(barcode: str, placeholder) -> tuple[dict | None, str | None, str |
 
 
 def search(barcode: str, placeholder) -> tuple[dict | None, str | None, str | None]:
-    """Pipeline de recherche : OFF d'abord, UPCitemdb en fallback."""
+    """Search pipeline: try OFF first, fall back to UPCitemdb."""
     product, db_id, source = fetch_off(barcode, placeholder)
     if product:
         return product, db_id, source
@@ -489,15 +489,15 @@ def normalize_query_value(v):
 
 
 # ── SUGGESTIONS ──────────────────────────────────────────────
-# Champs minimalistes pour la recherche de masse (réduit payload)
+# Minimal field set for bulk search queries (reduces payload size)
 _SEARCH_FIELDS = "product_name,brands,nutriscore_grade,nova_group,nutriments,additives_tags,categories_tags,code"
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_suggestions(p: dict, current_score: int):
     """
-    Recherche d'alternatives via OFF v2 Search API.
-    Doc : https://openfoodfacts.github.io/openfoodfacts-server/api/ref-v2/
-    Retourne une liste de (score, produit) ou un tuple d'erreur diagnostique.
+    Find better alternatives via the OFF v2 Search API.
+    Docs: https://openfoodfacts.github.io/openfoodfacts-server/api/ref-v2/
+    Returns a list of (score, product) tuples, or a diagnostic error tuple.
     """
     cats = p.get("categories_tags") or []
     candidates = [c for c in reversed(cats) if c.startswith("en:") and len(c) > 5]
@@ -508,13 +508,12 @@ def get_suggestions(p: dict, current_score: int):
 
     for cat in candidates[:3]:
         try:
-            # OFF v2 Search API — paramètres stables et documentés
             r = _HTTP.get(
                 "https://world.openfoodfacts.org/api/v2/search",
                 params={
-                    "categories_tags": cat,          # filtre catégorie exact
+                    "categories_tags": cat,
                     "sort_by":         "unique_scans_n",
-                    "page_size":       20,
+                    "page_size":       15,
                     "fields":          _SEARCH_FIELDS,
                 },
                 timeout=(4, 12),
@@ -523,9 +522,8 @@ def get_suggestions(p: dict, current_score: int):
                 last_err = ("http_err", str(r.status_code))
                 continue
 
-            data  = r.json()
-            # OFF v2 Search retourne {"products": [...], "count": N, "page": N, ...}
-            prods = data.get("products") or []
+            prods  = (r.json()).get("products") or []
+
             if not prods:
                 last_err = ("empty", cat)
                 continue
