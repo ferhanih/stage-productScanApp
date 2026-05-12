@@ -441,6 +441,7 @@ def normalize_query_value(v):
         return str(v[0]).strip() if v else ""
     return str(v).strip() if v is not None else ""
 
+@st.cache_data(ttl=3600)
 def get_suggestions(p, current_score):
     cats = p.get("categories_tags") or []
     candidates = [c for c in reversed(cats) if c.startswith("en:") and len(c) > 5]
@@ -454,22 +455,23 @@ def get_suggestions(p, current_score):
                 params={
                     "action":"process",
                     "tagtype_0":"categories","tag_contains_0":"contains","tag_0":cat,
-                    "sort_by":"unique_scans_n","page_size":"30",
+                    "sort_by":"unique_scans_n","page_size":"15",
                     "fields":"product_name,brands,nutriscore_grade,nova_group,nutriments,additives_tags,categories_tags,code",
                     "json":"1"
                 },
-                timeout=25,
+                timeout=8,
                 headers={"User-Agent":"ProductScan/0.5"}
             )
+            results = []
             if r.status_code != 200:
                 last_err = ("http_err", str(r.status_code)); continue
             prods = r.json().get("products", [])
             if not prods:
                 last_err = ("empty", cat); continue
-            results = []
             for prod in prods:
                 if not prod.get("product_name"): continue
                 s,_,_,_ = compute_fsa_score(prod)
+                print(s)
                 if s > current_score + 3:
                     results.append((s, prod))
             results.sort(key=lambda x: -x[0])
