@@ -3,24 +3,54 @@ import requests
 import re
 import streamlit.components.v1 as components
 import math
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 st.set_page_config(page_title="ProductScan", page_icon="🔍", layout="wide", initial_sidebar_state="collapsed")
 
+# ── SESSION HTTP (connexion réutilisable + retry automatique) ────────────────
+def _make_session() -> requests.Session:
+    """
+    Crée une session HTTP avec :
+    - Retry automatique sur erreurs réseau transitoires (503, 429, 502)
+    - Backoff exponentiel entre les tentatives
+    - User-Agent cohérent
+    """
+    session = requests.Session()
+    retry = Retry(
+        total=3,
+        backoff_factor=0.4,
+        status_forcelist={429, 500, 502, 503, 504},
+        allowed_methods={"GET"},
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    session.headers.update({
+        "User-Agent": "ProductScan/1.0 (contact: opensource@productscan.app)",
+        "Accept": "application/json",
+    })
+    return session
+
+_HTTP = _make_session()
+
 # ── PALETTE ORO→BRONZO ──────────────────────────────────────
 def get_palette(score):
-    if score >= 80:
+    """Restituisce colori dashboard in funzione dello score."""
+    if score >= 80:   # ORO
         return {"bg":"#FFFBF0","card":"#FFF8E1","accent":"#FFB300","accent2":"#FF8F00",
                 "text":"#4E3B00","sub":"#8D6E00","bar_bg":"#FFE082","medal":"🥇","label":"Eccellente"}
-    elif score >= 60:
+    elif score >= 60: # ARGENTO DORATO
         return {"bg":"#F9F6EE","card":"#F5F0E0","accent":"#C9A84C","accent2":"#A67C2E",
                 "text":"#3D2F00","sub":"#7A6030","bar_bg":"#E8D9A0","medal":"🥈","label":"Buono"}
-    elif score >= 40:
+    elif score >= 40: # BRONZO
         return {"bg":"#F7F0E6","card":"#F0E6D3","accent":"#CD7F32","accent2":"#A0522D",
                 "text":"#3B1F00","sub":"#7A4C20","bar_bg":"#DEB887","medal":"🥉","label":"Nella media"}
-    elif score >= 20:
+    elif score >= 20: # RAME SCURO
         return {"bg":"#F5EDE0","card":"#EDE0CC","accent":"#B87333","accent2":"#8B5A2B",
                 "text":"#3A1500","sub":"#7A3D1A","bar_bg":"#D4A07A","medal":"🔶","label":"Scarso"}
-    else:
+    else:             # OSSIDATO
         return {"bg":"#F0E8D8","card":"#E8D8C0","accent":"#8B6914","accent2":"#6B4F10",
                 "text":"#2C1A00","sub":"#6B4A10","bar_bg":"#C4A060","medal":"⚠️","label":"Molto scarso"}
 
@@ -64,7 +94,7 @@ div[data-testid="stVerticalBlock"]{{gap:0!important;}}
 .hero-name{{font-family:'Syne',sans-serif;font-size:1.2rem;font-weight:700;color:var(--text);line-height:1.3;margin-bottom:2px;}}
 .hero-brand{{font-family:'DM Sans',sans-serif;font-size:0.82rem;color:var(--sub);margin-bottom:10px;}}
 
-/* SCORE — argentato perlato, bordo colorato per score */
+/* SCORE */
 .score-block{{
   background:linear-gradient(145deg,#F5F5FA,#EAEAF2,#DCDCE8)!important;
   border-radius:16px!important;padding:18px 20px!important;
@@ -193,42 +223,29 @@ new MutationObserver(fixIframes).observe(document.body,{{childList:true,subtree:
 </script>
 """
 
-# ── FSA NUTRIENT PROFILING MODEL (scientifico) ──────────────
-# Fonte: Rayner M et al. (2005) Food Standards Agency UK
-# Validato OMS, usato da Nutri-Score come base
-# Punteggio A (negativo): energia, zuccheri, grassi saturi, sodio
-# Punteggio C (positivo): fibre, proteine, frutta/verdura/noci
-# Score finale = A - C, normalizzato 0-100 (invertito: alto = buono)
-# Moltiplicatore NOVA: Monteiro et al. PAHO 2019
-
+# ── FSA NUTRIENT PROFILING MODEL ─────────────────────────────
 ADDITIVI_DB = {
-    # Coloranti
     "en:e102":("Tartrazina","Colorante azoico, possibile iperattività nei bambini","high"),
     "en:e110":("Sunset Yellow","Colorante azoico, vietato in alcuni paesi","high"),
     "en:e122":("Carmoisina","Colorante azoico, possibile iperattività","high"),
     "en:e124":("Ponceau 4R","Colorante azoico, vietato negli USA","high"),
     "en:e129":("Rosso Allura","Colorante azoico","med"),
     "en:e171":("Biossido di Titanio","Classificato possibile cancerogeno EFSA 2021","high"),
-    # Conservanti
     "en:e211":("Benzoato di Sodio","Conservante, possibile iperattività in combo con coloranti","med"),
     "en:e220":("Anidride Solforosa","Conservante, può causare reazioni nei sensibili","med"),
     "en:e250":("Nitrito di Sodio","Conservante carni, potenzialmente cancerogeno (IARC)","high"),
     "en:e251":("Nitrato di Sodio","Conservante carni, convertibile in nitriti","high"),
     "en:e320":("BHA","Conservante antiossidante, possibile cancerogeno","high"),
     "en:e321":("BHT","Conservante antiossidante, controverso","med"),
-    # Dolcificanti
     "en:e951":("Aspartame","Dolcificante, controverso (rivalutazione EFSA 2023)","med"),
     "en:e950":("Acesulfame K","Dolcificante intensivo","low"),
     "en:e955":("Sucralosio","Dolcificante clorurato","low"),
-    # Emulsionanti
     "en:e471":("Mono/Digliceridi","Emulsionante, possibile impatto microbioma","low"),
     "en:e472e":("DATEM","Emulsionante","low"),
     "en:e476":("Poliricinoleato","Emulsionante","low"),
     "en:e481":("Stearoil Lattilato Na","Emulsionante","low"),
-    # Esaltatori
     "en:e621":("Glutammato Monosodico","Esaltatore di sapidità","low"),
     "en:e627":("Guanilato Disodico","Esaltatore di sapidità","low"),
-    # Addensanti
     "en:e407":("Carragenina","Addensante, possibile infiammazione intestinale","med"),
     "en:e412":("Gomma di Guar","Addensante, generalmente sicuro","low"),
     "en:e415":("Gomma Xantana","Addensante, generalmente sicuro","low"),
@@ -236,20 +253,10 @@ ADDITIVI_DB = {
 }
 
 def compute_fsa_score(p):
-    """
-    FSA Nutrient Profiling Model normalizzato 0-100.
-    Score A (0-10): energia, zuccheri totali, grassi saturi, sodio
-    Score C (0-15): fibre, proteine, % frutta/verdura/noci
-    NOVA malus: ultratrasformati penalizzati
-    FSA score grezzo = A - C (più basso = più sano)
-    Normalizzato: score_100 = round((15 - clamped(fsa,-5,15)) / 20 * 100)
-    """
     n = p.get("nutriments", {})
     pos_factors, neg_factors = [], []
 
-    # ── SCORE A (negativo, 0-10 per categoria) ──
-    # Energia (kJ per 100g)
-    kj = n.get("energy_100g") or (n.get("energy-kcal_100g",0)*4.184)
+    kj = n.get("energy_100g") or (n.get("energy-kcal_100g", 0) * 4.184)
     if kj <= 335: a_en = 0
     elif kj <= 670: a_en = 1
     elif kj <= 1005: a_en = 2
@@ -262,7 +269,6 @@ def compute_fsa_score(p):
     elif kj <= 3350: a_en = 9
     else: a_en = 10
 
-    # Zuccheri totali (g/100g)
     sug = n.get("sugars_100g") or 0
     if sug <= 4.5: a_sug = 0
     elif sug <= 9: a_sug = 1
@@ -276,7 +282,6 @@ def compute_fsa_score(p):
     elif sug <= 45: a_sug = 9
     else: a_sug = 10
 
-    # Grassi saturi (g/100g)
     sat = n.get("saturated-fat_100g") or 0
     if sat <= 1: a_sat = 0
     elif sat <= 2: a_sat = 1
@@ -290,7 +295,6 @@ def compute_fsa_score(p):
     elif sat <= 10: a_sat = 9
     else: a_sat = 10
 
-    # Sodio (mg/100g — sale*400)
     salt = n.get("salt_100g") or 0
     sodium = salt * 400
     if sodium <= 90: a_sod = 0
@@ -305,10 +309,8 @@ def compute_fsa_score(p):
     elif sodium <= 900: a_sod = 9
     else: a_sod = 10
 
-    score_a = a_en + a_sug + a_sat + a_sod  # 0-40
+    score_a = a_en + a_sug + a_sat + a_sod
 
-    # ── SCORE C (positivo, 0-5 per categoria) ──
-    # Fibre (g/100g) — AOAC method
     fiber = n.get("fiber_100g") or 0
     if fiber <= 0.9: c_fib = 0
     elif fiber <= 1.9: c_fib = 1
@@ -317,7 +319,6 @@ def compute_fsa_score(p):
     elif fiber <= 4.7: c_fib = 4
     else: c_fib = 5
 
-    # Proteine (g/100g)
     prot = n.get("proteins_100g") or 0
     if prot <= 1.6: c_pro = 0
     elif prot <= 3.2: c_pro = 1
@@ -326,7 +327,6 @@ def compute_fsa_score(p):
     elif prot <= 8.0: c_pro = 4
     else: c_pro = 5
 
-    # Frutta/verdura/noci (%)
     fvn = n.get("fruits-vegetables-nuts-estimate-from-ingredients_100g") or \
           n.get("fruits-vegetables-nuts_100g") or 0
     if fvn <= 40: c_fvn = 0
@@ -334,49 +334,43 @@ def compute_fsa_score(p):
     elif fvn <= 80: c_fvn = 2
     else: c_fvn = 5
 
-    score_c = c_fib + c_pro + c_fvn  # 0-15
-
-    # ── FSA RAW ──
-    fsa_raw = score_a - score_c  # da -15 a +40
-
-    # Normalizza: -15 = 100 (ottimo), +40 = 0 (pessimo)
+    score_c = c_fib + c_pro + c_fvn
+    fsa_raw = score_a - score_c
     score_100 = round(max(0, min(100, (40 - fsa_raw) / 55 * 100)))
 
-    # ── MALUS NOVA (Monteiro et al. 2019) ──
     nova = p.get("nova_group")
-    nova_malus = {1:0, 2:0, 3:-5, 4:-15}
+    nova_malus = {1: 0, 2: 0, 3: -5, 4: -15}
     if nova and nova in nova_malus:
         score_100 = max(0, score_100 + nova_malus[nova])
 
-    # ── FATTORI POSITIVI E NEGATIVI ──
-    kcal = n.get("energy-kcal_100g") or (kj/4.184 if kj else None)
+    kcal = n.get("energy-kcal_100g") or (kj / 4.184 if kj else None)
 
-    # Positivi
-    if c_fib >= 3: pos_factors.append(("🌾","Fibre",f"Eccellente: {fiber:.1f}g/100g","dot-g"))
-    elif c_fib >= 1: pos_factors.append(("🌾","Fibre",f"Presente: {fiber:.1f}g/100g","dot-g"))
-    if c_pro >= 3: pos_factors.append(("💪","Proteine",f"Ottima quantità: {prot:.1f}g/100g","dot-g"))
-    elif c_pro >= 1: pos_factors.append(("💪","Proteine",f"Buona quantità: {prot:.1f}g/100g","dot-g"))
-    if c_fvn >= 2: pos_factors.append(("🍎","Frutta/Verdura",f"Alta presenza: {fvn:.0f}%","dot-g"))
-    elif c_fvn == 1: pos_factors.append(("🍎","Frutta/Verdura",f"Presente: {fvn:.0f}%","dot-g"))
-    if a_sod == 0: pos_factors.append(("🧂","Sale",f"Senza sale: {salt:.2f}g/100g","dot-g"))
-    elif a_sod <= 1: pos_factors.append(("🧂","Sale",f"Basso: {salt:.2f}g/100g","dot-g"))
-    if a_sat <= 1: pos_factors.append(("💧","Grassi saturi",f"Bassi: {sat:.1f}g/100g","dot-g"))
-    if nova and nova <= 2: pos_factors.append(("🌿","Alimento non trasformato",f"NOVA {nova} — bassa trasformazione","dot-g"))
+    if c_fib >= 3: pos_factors.append(("🌾", "Fibre", f"Eccellente: {fiber:.1f}g/100g", "dot-g"))
+    elif c_fib >= 1: pos_factors.append(("🌾", "Fibre", f"Presente: {fiber:.1f}g/100g", "dot-g"))
+    if c_pro >= 3: pos_factors.append(("💪", "Proteine", f"Ottima quantità: {prot:.1f}g/100g", "dot-g"))
+    elif c_pro >= 1: pos_factors.append(("💪", "Proteine", f"Buona quantità: {prot:.1f}g/100g", "dot-g"))
+    if c_fvn >= 2: pos_factors.append(("🍎", "Frutta/Verdura", f"Alta presenza: {fvn:.0f}%", "dot-g"))
+    elif c_fvn == 1: pos_factors.append(("🍎", "Frutta/Verdura", f"Presente: {fvn:.0f}%", "dot-g"))
+    if a_sod == 0: pos_factors.append(("🧂", "Sale", f"Senza sale: {salt:.2f}g/100g", "dot-g"))
+    elif a_sod <= 1: pos_factors.append(("🧂", "Sale", f"Basso: {salt:.2f}g/100g", "dot-g"))
+    if a_sat <= 1: pos_factors.append(("💧", "Grassi saturi", f"Bassi: {sat:.1f}g/100g", "dot-g"))
+    if nova and nova <= 2: pos_factors.append(("🌿", "Alimento non trasformato", f"NOVA {nova} — bassa trasformazione", "dot-g"))
 
-    # Negativi
-    if a_sug >= 5: neg_factors.append(("🍬","Zuccheri",f"Elevati: {sug:.1f}g/100g","dot-r"))
-    elif a_sug >= 2: neg_factors.append(("🍬","Zuccheri",f"Moderati: {sug:.1f}g/100g","dot-o"))
-    if a_sat >= 5: neg_factors.append(("🧈","Grassi saturi",f"Elevati: {sat:.1f}g/100g","dot-r"))
-    elif a_sat >= 3: neg_factors.append(("🧈","Grassi saturi",f"Moderati: {sat:.1f}g/100g","dot-o"))
-    if a_sod >= 5: neg_factors.append(("🧂","Sale",f"Elevato: {salt:.2f}g/100g","dot-r"))
-    elif a_sod >= 3: neg_factors.append(("🧂","Sale",f"Moderato: {salt:.2f}g/100g","dot-o"))
-    if kcal and kcal > 450: neg_factors.append(("🔥","Energia",f"{int(kcal)} kcal/100g","dot-o"))
-    if nova and nova == 4: neg_factors.append(("🏭","Ultra-trasformato",f"NOVA 4 — alto grado di trasformazione","dot-r"))
-    elif nova and nova == 3: neg_factors.append(("🏭","Trasformato",f"NOVA 3 — alimento trasformato","dot-o"))
+    if a_sug >= 5: neg_factors.append(("🍬", "Zuccheri", f"Elevati: {sug:.1f}g/100g", "dot-r"))
+    elif a_sug >= 2: neg_factors.append(("🍬", "Zuccheri", f"Moderati: {sug:.1f}g/100g", "dot-o"))
+    if a_sat >= 5: neg_factors.append(("🧈", "Grassi saturi", f"Elevati: {sat:.1f}g/100g", "dot-r"))
+    elif a_sat >= 3: neg_factors.append(("🧈", "Grassi saturi", f"Moderati: {sat:.1f}g/100g", "dot-o"))
+    if a_sod >= 5: neg_factors.append(("🧂", "Sale", f"Elevato: {salt:.2f}g/100g", "dot-r"))
+    elif a_sod >= 3: neg_factors.append(("🧂", "Sale", f"Moderato: {salt:.2f}g/100g", "dot-o"))
+    if kcal and kcal > 450: neg_factors.append(("🔥", "Energia", f"{int(kcal)} kcal/100g", "dot-o"))
+    if nova and nova == 4: neg_factors.append(("🏭", "Ultra-trasformato", f"NOVA 4 — alto grado di trasformazione", "dot-r"))
+    elif nova and nova == 3: neg_factors.append(("🏭", "Trasformato", f"NOVA 3 — alimento trasformato", "dot-o"))
 
-    return score_100, pos_factors, neg_factors, {"a":score_a,"c":score_c,"fsa":fsa_raw,
-           "nova":nova,"fiber":fiber,"prot":prot,"sugar":sug,"sat":sat,"salt":salt,
-           "kcal":kcal,"fvn":fvn}
+    return score_100, pos_factors, neg_factors, {
+        "a": score_a, "c": score_c, "fsa": fsa_raw,
+        "nova": nova, "fiber": fiber, "prot": prot, "sugar": sug,
+        "sat": sat, "salt": salt, "kcal": kcal, "fvn": fvn,
+    }
 
 # ── ADDITIVI ────────────────────────────────────────────────
 def render_additivi(p):
@@ -388,82 +382,125 @@ def render_additivi(p):
                 '</div>')
     pills = ""
     for tag in tags:
-        tag_clean = tag.lower().replace("_"," ")
+        tag_clean = tag.lower().replace("_", " ")
         if tag_clean in ADDITIVI_DB:
             name, desc, risk = ADDITIVI_DB[tag_clean]
             risk_cls = f"risk-{risk}"
-            code = tag.replace("en:","").upper()
+            code = tag.replace("en:", "").upper()
             pills += f'<div class="additive-pill"><div class="additive-risk {risk_cls}"></div>{code} — {name}</div>'
         else:
-            code = tag.replace("en:","").upper()
+            code = tag.replace("en:", "").upper()
             pills += f'<div class="additive-pill"><div class="additive-risk risk-low"></div>{code}</div>'
     risk_legend = '<div style="font-family:DM Mono,monospace;font-size:0.62rem;color:#E65100;margin-top:10px;">🔴 Alto rischio &nbsp;🟠 Moderato &nbsp;🟡 Basso rischio</div>'
     return f'<div class="additivi-section"><div class="additivi-title">⚗️ Additivi ({len(tags)})</div>{pills}{risk_legend}</div>'
 
 # ── DB ────────────────────────────────────────────────────────
-DBS=[
-    ("food","Open Food Facts","https://world.openfoodfacts.org"),
-    ("beauty","Open Beauty Facts","https://world.openbeautyfacts.org"),
-    ("generic","Open Products Facts","https://world.openproductsfacts.org")
+# Champs demandés à OFF v2 — réduit la taille de réponse de ~60 %
+_OFF_FIELDS = ",".join([
+    "product_name", "product_name_it", "product_name_en", "product_name_fr",
+    "brands", "categories_tags", "ingredients_text", "ingredients_text_it",
+    "ingredients_text_en", "ingredients_text_fr", "ingredients",
+    "allergens_tags", "additives_tags", "nova_group",
+    "nutriscore_grade", "nutriments",
+    "image_url", "image_front_url", "code",
+])
+
+# Sources dans l'ordre de priorité
+DBS = [
+    ("food",    "Open Food Facts",    "https://world.openfoodfacts.org"),
+    ("beauty",  "Open Beauty Facts",  "https://world.openbeautyfacts.org"),
+    ("generic", "Open Products Facts","https://world.openproductsfacts.org"),
 ]
 
 
-def fetch_off(bc, ph):
-    for did, dn, base in DBS:
-        ph.markdown(f"→ {dn}")
-        try:
-            r = requests.get(
-                f"{base}/api/v2/product/{bc}.json",
-                timeout=8,
-                headers={"User-Agent":"ProductScan/0.5"}
-            )
-            if r.status_code == 200:
-                d = r.json()
-                if d.get("status") == 1:
-                    return d["product"], did, dn
-        except:
-            pass
-    return None, None, None
-
-def fetch_upc(bc, ph):
-    ph.markdown("→ UPCitemdb")
+def _fetch_off_single(barcode: str, base: str) -> dict | None:
+    """
+    Appel API OFF v2 :
+    GET /api/v2/product/{barcode}?fields=…
+    Retourne le dict produit ou None.
+    """
+    url = f"{base}/api/v2/product/{barcode}"
     try:
-        r = requests.get(
-            f"https://api.upcitemdb.com/prod/trial/lookup?upc={bc}",
-            timeout=8,
-            headers={"User-Agent":"ProductScan/0.5"}
-        )
-        if r.status_code == 200:
-            items = r.json().get("items", [])
-            if items:
-                i = items[0]
-                return {
-                    "product_name": i.get("title",""),
-                    "brands": i.get("brand",""),
-                    "categories": i.get("category",""),
-                    "ingredients_text": i.get("ingredients",""),
-                    "image_url": (i.get("images") or [""])[0]
-                }, "generic", "UPCitemdb"
-    except:
+        r = _HTTP.get(url, params={"fields": _OFF_FIELDS}, timeout=(4, 10))
+        r.raise_for_status()
+        data = r.json()
+        # OFF v2 : status 1 = trouvé, 0 = inconnu
+        if data.get("status") == 1 and data.get("product"):
+            return data["product"]
+    except requests.exceptions.Timeout:
+        pass  # timeout silencieux, on essaie la source suivante
+    except requests.exceptions.RequestException:
         pass
+    return None
+
+
+def fetch_off(barcode: str, placeholder) -> tuple[dict | None, str | None, str | None]:
+    """Essaie chaque base OFF dans l'ordre ; retourne (produit, db_id, db_name)."""
+    for db_id, db_name, base in DBS:
+        placeholder.markdown(f'<div class="src-badge">→ {db_name}</div>', unsafe_allow_html=True)
+        product = _fetch_off_single(barcode, base)
+        if product:
+            return product, db_id, db_name
     return None, None, None
 
-def search(bc, ph):
-    p, d, s = fetch_off(bc, ph)
-    if p:
-        return p, d, s
-    return fetch_upc(bc, ph)
+
+def fetch_upc(barcode: str, placeholder) -> tuple[dict | None, str | None, str | None]:
+    """
+    UPCitemdb trial endpoint.
+    Doc : https://www.upcitemdb.com/wp-content/uploads/2019/09/UPC_database_API_doc_8_20.pdf
+    Retourne un pseudo-produit normalisé ou None.
+    """
+    placeholder.markdown('<div class="src-badge">→ UPCitemdb</div>', unsafe_allow_html=True)
+    url = "https://api.upcitemdb.com/prod/trial/lookup"
+    try:
+        r = _HTTP.get(url, params={"upc": barcode}, timeout=(4, 10))
+        if r.status_code == 429:
+            # Rate-limit atteint sur le tier gratuit
+            return None, None, None
+        r.raise_for_status()
+        items = r.json().get("items") or []
+        if not items:
+            return None, None, None
+        item = items[0]
+        product = {
+            "product_name": item.get("title", ""),
+            "brands":       item.get("brand", ""),
+            "categories":   item.get("category", ""),
+            "ingredients_text": item.get("ingredients", ""),
+            "image_url":    (item.get("images") or [""])[0],
+        }
+        return product, "generic", "UPCitemdb"
+    except requests.exceptions.RequestException:
+        return None, None, None
+
+
+def search(barcode: str, placeholder) -> tuple[dict | None, str | None, str | None]:
+    """Pipeline de recherche : OFF d'abord, UPCitemdb en fallback."""
+    product, db_id, source = fetch_off(barcode, placeholder)
+    if product:
+        return product, db_id, source
+    return fetch_upc(barcode, placeholder)
+
 
 def normalize_query_value(v):
     if isinstance(v, list):
         return str(v[0]).strip() if v else ""
     return str(v).strip() if v is not None else ""
 
-@st.cache_data(ttl=3600)
-def get_suggestions(p, current_score):
+
+# ── SUGGESTIONS ──────────────────────────────────────────────
+# Champs minimalistes pour la recherche de masse (réduit payload)
+_SEARCH_FIELDS = "product_name,brands,nutriscore_grade,nova_group,nutriments,additives_tags,categories_tags,code"
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_suggestions(p: dict, current_score: int):
+    """
+    Recherche d'alternatives via OFF v2 Search API.
+    Doc : https://openfoodfacts.github.io/openfoodfacts-server/api/ref-v2/
+    Retourne une liste de (score, produit) ou un tuple d'erreur diagnostique.
+    """
     cats = p.get("categories_tags") or []
     candidates = [c for c in reversed(cats) if c.startswith("en:") and len(c) > 5]
-
     if not candidates:
         return ("no_cat", str(cats[:3]))
 
@@ -471,23 +508,24 @@ def get_suggestions(p, current_score):
 
     for cat in candidates[:3]:
         try:
-            r = requests.get(
+            # OFF v2 Search API — paramètres stables et documentés
+            r = _HTTP.get(
                 "https://world.openfoodfacts.org/api/v2/search",
                 params={
-                    "categories_tags": cat,
-                    "sort_by": "unique_scans_n",
-                    "page_size": 15,
-                    "fields": "product_name,brands,nutriscore_grade,nova_group,nutriments,additives_tags,categories_tags,code"
+                    "categories_tags": cat,          # filtre catégorie exact
+                    "sort_by":         "unique_scans_n",
+                    "page_size":       20,
+                    "fields":          _SEARCH_FIELDS,
                 },
-                timeout=8,
-                headers={"User-Agent":"ProductScan/0.5"}
+                timeout=(4, 12),
             )
-
             if r.status_code != 200:
                 last_err = ("http_err", str(r.status_code))
                 continue
 
-            prods = r.json().get("products", [])
+            data  = r.json()
+            # OFF v2 Search retourne {"products": [...], "count": N, "page": N, ...}
+            prods = data.get("products") or []
             if not prods:
                 last_err = ("empty", cat)
                 continue
@@ -496,85 +534,90 @@ def get_suggestions(p, current_score):
             for prod in prods:
                 if not prod.get("product_name"):
                     continue
-
                 s, _, _, _ = compute_fsa_score(prod)
-
                 if s > current_score + 3:
                     results.append((s, prod))
 
             results.sort(key=lambda x: -x[0])
-
             if results:
                 return results[:4]
 
             last_err = ("none_better", f"score={current_score}")
 
+        except requests.exceptions.Timeout:
+            last_err = ("exception", "timeout")
         except Exception as ex:
             last_err = ("exception", str(ex)[:80])
-            continue
 
     return last_err
 
+
 # ── HELPERS ──────────────────────────────────────────────────
-def e(s): return str(s or"").replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
+def e(s): return str(s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 def nutriscore_html(ns):
-    letters,colors=["A","B","C","D","E"],["nsa-c","nsb-c","nsc-c","nsd-c","nse-c"]
-    html='<div class="ns-row">'
-    for l,c in zip(letters,colors):
-        html+=f'<div class="ns-l {c}{"  active" if l.lower()==ns else ""}">{l}</div>'
-    return html+"</div>"
+    letters, colors = ["A","B","C","D","E"], ["nsa-c","nsb-c","nsc-c","nsd-c","nse-c"]
+    html = '<div class="ns-row">'
+    for l, c in zip(letters, colors):
+        html += f'<div class="ns-l {c}{"  active" if l.lower()==ns else ""}">{l}</div>'
+    return html + "</div>"
 
 def nova_html(nova):
-    html='<div class="nova-row">'
-    for i,c in enumerate(["n1c","n2c","n3c","n4c"],1):
-        html+=f'<div class="nova-dot {c}{"  active" if nova==i else ""}">{i}</div>'
-    return html+"</div>"
+    html = '<div class="nova-row">'
+    for i, c in enumerate(["n1c","n2c","n3c","n4c"], 1):
+        html += f'<div class="nova-dot {c}{"  active" if nova==i else ""}">{i}</div>'
+    return html + "</div>"
 
 def macro_svg(fat, carbs, prot):
-    tot=fat*9+carbs*4+prot*4
-    if tot==0: return ""
-    pf=fat*9/tot*100; pc=carbs*4/tot*100; pp=prot*4/tot*100
-    def sl(s,en,col):
-        if en-s>=100: en-=0.01
-        a=math.radians(s/100*360-90); b=math.radians(en/100*360-90)
-        r=52; cx=60; cy=60
-        x1,y1=cx+r*math.cos(a),cy+r*math.sin(a); x2,y2=cx+r*math.cos(b),cy+r*math.sin(b)
+    tot = fat * 9 + carbs * 4 + prot * 4
+    if tot == 0:
+        return ""
+    pf = fat*9/tot*100; pc = carbs*4/tot*100; pp = prot*4/tot*100
+
+    def sl(s, en, col):
+        if en - s >= 100: en -= 0.01
+        a = math.radians(s/100*360 - 90); b = math.radians(en/100*360 - 90)
+        r = 52; cx = 60; cy = 60
+        x1, y1 = cx+r*math.cos(a), cy+r*math.sin(a)
+        x2, y2 = cx+r*math.cos(b), cy+r*math.sin(b)
         return f'<path d="M{cx},{cy} L{x1:.1f},{y1:.1f} A{r},{r} 0 {1 if en-s>50 else 0},1 {x2:.1f},{y2:.1f} Z" fill="{col}"/>'
-    svg=(f'<svg width="120" height="120" viewBox="0 0 120 120">'
-         f'{sl(0,pf,"#e53935")}{sl(pf,pf+pc,"#FF9800")}{sl(pf+pc,pf+pc+pp,"#4CAF50")}'
-         f'<circle cx="60" cy="60" r="30" fill="var(--bg)"/>'
-         f'<text x="60" y="56" text-anchor="middle" font-family="Syne" font-size="11" font-weight="700" fill="var(--text)">{int(tot)}</text>'
-         f'<text x="60" y="69" text-anchor="middle" font-family="DM Sans" font-size="8" fill="var(--sub)">kcal</text>'
-         f'</svg>')
-    leg=(f'<div class="chart-legend">'
-         f'<span style="color:#e53935">●</span> Grassi {fat:.1f}g ({pf:.0f}%)<br>'
-         f'<span style="color:#FF9800">●</span> Carb {carbs:.1f}g ({pc:.0f}%)<br>'
-         f'<span style="color:#4CAF50">●</span> Prot {prot:.1f}g ({pp:.0f}%)</div>')
+
+    svg = (f'<svg width="120" height="120" viewBox="0 0 120 120">'
+           f'{sl(0,pf,"#e53935")}{sl(pf,pf+pc,"#FF9800")}{sl(pf+pc,pf+pc+pp,"#4CAF50")}'
+           f'<circle cx="60" cy="60" r="30" fill="var(--bg)"/>'
+           f'<text x="60" y="56" text-anchor="middle" font-family="Syne" font-size="11" font-weight="700" fill="var(--text)">{int(tot)}</text>'
+           f'<text x="60" y="69" text-anchor="middle" font-family="DM Sans" font-size="8" fill="var(--sub)">kcal</text>'
+           f'</svg>')
+    leg = (f'<div class="chart-legend">'
+           f'<span style="color:#e53935">●</span> Grassi {fat:.1f}g ({pf:.0f}%)<br>'
+           f'<span style="color:#FF9800">●</span> Carb {carbs:.1f}g ({pc:.0f}%)<br>'
+           f'<span style="color:#4CAF50">●</span> Prot {prot:.1f}g ({pp:.0f}%)</div>')
     return f'<div class="chart-wrap">{svg}{leg}</div>'
 
 def ha(txt):
-    for a in['LATTE','GLUTINE','FRUMENTO','GRANO','UOVA','SOIA','ARACHIDI','NOCI','MANDORLE','NOCCIOLE','SESAMO','SENAPE','SEDANO','LUPINI','CROSTACEI','PESCE','SOLFITI']:
-        txt=re.sub(f'\\b{a}\\b',f'<span class="ia">{a}</span>',txt,flags=re.IGNORECASE)
+    for a in ['LATTE','GLUTINE','FRUMENTO','GRANO','UOVA','SOIA','ARACHIDI','NOCI',
+              'MANDORLE','NOCCIOLE','SESAMO','SENAPE','SEDANO','LUPINI','CROSTACEI','PESCE','SOLFITI']:
+        txt = re.sub(f'\\b{a}\\b', f'<span class="ia">{a}</span>', txt, flags=re.IGNORECASE)
     return txt
 
-def nf_bar(name,val,mx,unit,color):
-    pct=min(100,(val/mx)*100) if val else 0
-    vs=f"{val:.1f}{unit}" if val is not None else "—"
+def nf_bar(name, val, mx, unit, color):
+    pct = min(100, (val/mx)*100) if val else 0
+    vs = f"{val:.1f}{unit}" if val is not None else "—"
     return (f'<div class="nf-row"><div class="nf-name">{name}</div>'
             f'<div class="nf-bar-bg"><div class="nf-bar" style="width:{pct}%;background:{color};"></div></div>'
             f'<div class="nf-val">{vs}</div></div>')
 
-def factor_row(icon,name,desc,dot):
-    fi={"dot-g":"fi-green","dot-o":"fi-orange","dot-r":"fi-red"}.get(dot,"fi-orange")
+def factor_row(icon, name, desc, dot):
+    fi = {"dot-g":"fi-green","dot-o":"fi-orange","dot-r":"fi-red"}.get(dot, "fi-orange")
     return (f'<div class="factor"><div class="factor-icon {fi}">{icon}</div>'
             f'<div class="factor-text"><div class="factor-name">{name}</div>'
             f'<div class="factor-desc">{desc}</div></div>'
             f'<div class="dot {dot}"></div></div>')
 
-def bar_color(v,low,high):
+def bar_color(v, low, high):
     if v is None: return "var(--bar-bg)"
-    return "#4CAF50" if v<=low else "#FF9800" if v<=high else "#e53935"
+    return "#4CAF50" if v <= low else "#FF9800" if v <= high else "#e53935"
+
 
 # ── SCANNER ──────────────────────────────────────────────────
 def scanner_html(pal):
@@ -646,24 +689,25 @@ function halt(){{
 }}
 </script>"""
 
+
 # ── RENDER FOOD ───────────────────────────────────────────────
 def render_food(p, score, pos, neg, details, pal):
-    n=p.get("nutriments",{})
-    name=e(p.get("product_name") or p.get("product_name_it") or p.get("product_name_en") or "Prodotto")
-    brand=e(p.get("brands",""))
-    img=p.get("image_url") or p.get("image_front_url") or ""
-    ns=(p.get("nutriscore_grade") or "").lower()
-    nova=p.get("nova_group")
-    col=pal['accent']; label=pal['label']; medal=pal['medal']
+    n = p.get("nutriments", {})
+    name  = e(p.get("product_name") or p.get("product_name_it") or p.get("product_name_en") or "Prodotto")
+    brand = e(p.get("brands", ""))
+    img   = p.get("image_url") or p.get("image_front_url") or ""
+    ns    = (p.get("nutriscore_grade") or "").lower()
+    nova  = p.get("nova_group")
+    label = pal['label']; medal = pal['medal']
 
-    img_html=(f'<img class="hero-img" src="{img}" onerror="this.style.display=\'none\'">'
-              if img else '<div class="hero-img-ph">📦</div>')
-    if score >= 75:   border_col="#4CAF50"; shadow_col="rgba(76,175,80,0.35)"
-    elif score >= 50: border_col="#8BC34A"; shadow_col="rgba(139,195,74,0.35)"
-    elif score >= 30: border_col="#FF9800"; shadow_col="rgba(255,152,0,0.35)"
-    else:             border_col="#e53935"; shadow_col="rgba(229,57,53,0.35)"
+    img_html = (f'<img class="hero-img" src="{img}" onerror="this.style.display=\'none\'">'
+                if img else '<div class="hero-img-ph">📦</div>')
 
-    # Stili 100% inline — non dipendono dal CSS globale
+    if score >= 75:   border_col = "#4CAF50"; shadow_col = "rgba(76,175,80,0.35)"
+    elif score >= 50: border_col = "#8BC34A"; shadow_col = "rgba(139,195,74,0.35)"
+    elif score >= 30: border_col = "#FF9800"; shadow_col = "rgba(255,152,0,0.35)"
+    else:             border_col = "#e53935"; shadow_col = "rgba(229,57,53,0.35)"
+
     sb_style = (f"background:linear-gradient(145deg,#F5F5FA,#EAEAF2,#DCDCE8);"
                 f"border-radius:16px;padding:18px 20px;"
                 f"display:flex;align-items:center;gap:20px;"
@@ -699,56 +743,62 @@ def render_food(p, score, pos, neg, details, pal):
         f'<div style="{bar_bg_s}"><div style="{bar_fill_s}"></div></div>'
         f'</div>', unsafe_allow_html=True)
 
-    # POSITIVI
     if pos:
-        rows="".join([factor_row(ic,nm,dc,dt) for ic,nm,dc,dt in pos])
+        rows = "".join([factor_row(ic, nm, dc, dt) for ic, nm, dc, dt in pos])
         st.markdown(f'<div class="section"><div class="section-header"><div class="section-title">Positivo</div><div class="section-badge">per 100g</div></div>{rows}</div>', unsafe_allow_html=True)
 
-    # NEGATIVI
     if neg:
-        rows="".join([factor_row(ic,nm,dc,dt) for ic,nm,dc,dt in neg])
+        rows = "".join([factor_row(ic, nm, dc, dt) for ic, nm, dc, dt in neg])
         st.markdown(f'<div class="section"><div class="section-header"><div class="section-title">Negativo</div><div class="section-badge">per 100g</div></div>{rows}</div>', unsafe_allow_html=True)
 
-    # ADDITIVI — sempre visibile
     add_html = render_additivi(p)
     st.markdown(f'<div class="section">{add_html}</div>', unsafe_allow_html=True)
 
-    # INGREDIENTI
-    ing=(p.get("ingredients_text") or p.get("ingredients_text_it") or
-         p.get("ingredients_text_en") or p.get("ingredients_text_fr") or "").strip()
+    ing = (p.get("ingredients_text") or p.get("ingredients_text_it") or
+           p.get("ingredients_text_en") or p.get("ingredients_text_fr") or "").strip()
     if not ing and p.get("ingredients"):
-        try: ing=", ".join([i.get("text","") for i in p["ingredients"] if i.get("text")])
+        try: ing = ", ".join([i.get("text", "") for i in p["ingredients"] if i.get("text")])
         except: pass
-    allergens=[t.replace("en:","").replace("-"," ") for t in (p.get("allergens_tags") or [])]
-    atags_html="".join([f'<span class="atag">{a}</span>' for a in allergens])
-    ih=f'<div class="ing-text">{ha(e(ing))}</div>' if ing else f'<div class="ing-missing">Ingredienti non disponibili.<br><a href="https://world.openfoodfacts.org/product/{e(p.get("code",""))}" target="_blank" style="color:{pal["accent"]};">Contribuisci su openfoodfacts.org</a></div>'
-    if atags_html: ih+=f'<div class="atags">{atags_html}</div>'
+    allergens  = [t.replace("en:", "").replace("-", " ") for t in (p.get("allergens_tags") or [])]
+    atags_html = "".join([f'<span class="atag">{a}</span>' for a in allergens])
+    ih = (f'<div class="ing-text">{ha(e(ing))}</div>' if ing
+          else f'<div class="ing-missing">Ingredienti non disponibili.<br>'
+               f'<a href="https://world.openfoodfacts.org/product/{e(p.get("code",""))}" target="_blank" style="color:{pal["accent"]};">Contribuisci su openfoodfacts.org</a></div>')
+    if atags_html:
+        ih += f'<div class="atags">{atags_html}</div>'
     st.markdown(f'<div class="section"><div class="section-title">Ingredienti</div><div class="divider"></div>{ih}</div>', unsafe_allow_html=True)
 
-    # VALORI NUTRIZIONALI
-    fat=n.get("fat_100g"); sat=n.get("saturated-fat_100g")
-    carbs=n.get("carbohydrates_100g"); sugar=n.get("sugars_100g")
-    fiber=n.get("fiber_100g"); prot=n.get("proteins_100g"); salt=n.get("salt_100g")
-    kcal_v=details.get("kcal")
-    nf=(nf_bar("Grassi",fat,30,"g",bar_color(fat,3,17.5))+
-        nf_bar("↳ Grassi saturi",sat,10,"g",bar_color(sat,1.5,5))+
-        nf_bar("Carboidrati",carbs,80,"g",bar_color(carbs,20,60))+
-        nf_bar("↳ Zuccheri",sugar,40,"g",bar_color(sugar,5,22.5))+
-        nf_bar("Fibre",fiber,10,"g","#4CAF50" if fiber and fiber>=3 else "#FF9800")+
-        nf_bar("Proteine",prot,30,"g","#4CAF50" if prot and prot>=8 else "#FF9800")+
-        nf_bar("Sale",salt,3,"g",bar_color(salt,0.3,1.5)))
-    chart=macro_svg(fat or 0, carbs or 0, prot or 0)
-    kcal_s=f'<div style="font-family:DM Sans,sans-serif;font-size:0.8rem;color:var(--sub);margin-top:14px;">Energia per 100g: <strong style="color:var(--text);font-size:1rem;">{int(kcal_v)} kcal</strong></div>' if kcal_v else ""
-    nova_s=f'<div class="divider"></div><div style="font-family:DM Sans,sans-serif;font-size:0.85rem;font-weight:500;margin-bottom:4px;">Grado di trasformazione (NOVA)</div>{nova_html(nova)}<div style="font-family:DM Mono,monospace;font-size:0.65rem;color:var(--sub);margin-top:4px;">Monteiro et al. 2019 — PAHO/WHO</div>'
-    fsa_info=f'<div style="font-family:DM Mono,monospace;font-size:0.62rem;color:var(--sub);margin-top:14px;padding:10px;background:var(--bg);border-radius:8px;">Score FSA grezzo: A={details["a"]} C={details["c"]} → {details["fsa"]} → normalizzato {score}/100<br>Rayner M et al. FSA 2005 — OMS Nutrient Profiling</div>'
+    fat   = n.get("fat_100g");           sat   = n.get("saturated-fat_100g")
+    carbs = n.get("carbohydrates_100g"); sugar = n.get("sugars_100g")
+    fiber = n.get("fiber_100g");         prot  = n.get("proteins_100g")
+    salt  = n.get("salt_100g");          kcal_v = details.get("kcal")
+
+    nf = (nf_bar("Grassi",         fat,   30, "g", bar_color(fat,   3,    17.5)) +
+          nf_bar("↳ Grassi saturi",sat,   10, "g", bar_color(sat,   1.5,  5   )) +
+          nf_bar("Carboidrati",    carbs,  80, "g", bar_color(carbs, 20,   60  )) +
+          nf_bar("↳ Zuccheri",    sugar,  40, "g", bar_color(sugar, 5,    22.5)) +
+          nf_bar("Fibre",         fiber,  10, "g", "#4CAF50" if fiber and fiber >= 3 else "#FF9800") +
+          nf_bar("Proteine",       prot,  30, "g", "#4CAF50" if prot  and prot  >= 8 else "#FF9800") +
+          nf_bar("Sale",           salt,   3, "g", bar_color(salt,   0.3,  1.5 )))
+
+    chart  = macro_svg(fat or 0, carbs or 0, prot or 0)
+    kcal_s = (f'<div style="font-family:DM Sans,sans-serif;font-size:0.8rem;color:var(--sub);margin-top:14px;">'
+              f'Energia per 100g: <strong style="color:var(--text);font-size:1rem;">{int(kcal_v)} kcal</strong></div>'
+              if kcal_v else "")
+    nova_s = (f'<div class="divider"></div>'
+              f'<div style="font-family:DM Sans,sans-serif;font-size:0.85rem;font-weight:500;margin-bottom:4px;">Grado di trasformazione (NOVA)</div>'
+              f'{nova_html(nova)}'
+              f'<div style="font-family:DM Mono,monospace;font-size:0.65rem;color:var(--sub);margin-top:4px;">Monteiro et al. 2019 — PAHO/WHO</div>')
+    fsa_info = (f'<div style="font-family:DM Mono,monospace;font-size:0.62rem;color:var(--sub);'
+                f'margin-top:14px;padding:10px;background:var(--bg);border-radius:8px;">'
+                f'Score FSA grezzo: A={details["a"]} C={details["c"]} → {details["fsa"]} → normalizzato {score}/100<br>'
+                f'Rayner M et al. FSA 2005 — OMS Nutrient Profiling</div>')
     st.markdown(f'<div class="section"><div class="section-title">Valori Nutrizionali</div><div class="section-sub">per 100g</div>{chart}{nf}{kcal_s}{nova_s}{fsa_info}</div>', unsafe_allow_html=True)
 
-def render_alternatives(suggestions, pal):
-    acc = pal["accent"]
-    sub = pal["sub"]
-    bg  = pal["bar_bg"]
 
-    # Errore diagnostico
+def render_alternatives(suggestions, pal):
+    sub = pal["sub"]
+
     if isinstance(suggestions, tuple):
         err_type, err_msg = suggestions
         msgs = {
@@ -760,7 +810,7 @@ def render_alternatives(suggestions, pal):
         }
         msg = msgs.get(err_type, f"{err_type}: {err_msg}")
         st.markdown(
-            f'<div class="section"><div class="section-title">Alternative Migliori</div>'+
+            f'<div class="section"><div class="section-title">Alternative Migliori</div>'
             f'<div style="font-family:DM Sans,sans-serif;font-size:0.82rem;color:{sub};padding:12px 0;">{msg}</div></div>',
             unsafe_allow_html=True)
         return
@@ -768,18 +818,18 @@ def render_alternatives(suggestions, pal):
     if not suggestions:
         return
 
-    html = (f'<div class="section">'+
-            f'<div class="section-title">Alternative Migliori</div>'+
+    html = (f'<div class="section">'
+            f'<div class="section-title">Alternative Migliori</div>'
             f'<div class="section-sub">Prodotti simili con score FSA superiore</div>')
     for s, prod in suggestions:
-        if s >= 75:   bc="#4CAF50"
-        elif s >= 50: bc="#8BC34A"
-        elif s >= 30: bc="#FF9800"
-        else:         bc="#e53935"
-        name  = e((prod.get("product_name") or "")[:45])
-        brand = e((prod.get("brands") or "")[:25])
-        code  = prod.get("code","")
-        ns2   = (prod.get("nutriscore_grade") or "").lower()
+        if s >= 75:   bc = "#4CAF50"
+        elif s >= 50: bc = "#8BC34A"
+        elif s >= 30: bc = "#FF9800"
+        else:         bc = "#e53935"
+        name   = e((prod.get("product_name") or "")[:45])
+        brand  = e((prod.get("brands")        or "")[:25])
+        code   = prod.get("code", "")
+        ns2    = (prod.get("nutriscore_grade") or "").lower()
         ns_txt = f'Nutri-Score {ns2.upper()}' if ns2 and ns2 in "abcde" else ""
         circle_s = (f"width:50px;height:50px;border-radius:50%;flex-shrink:0;"
                     f"background:linear-gradient(145deg,#FFFFFF,#EEEEF6);"
@@ -787,54 +837,49 @@ def render_alternatives(suggestions, pal):
                     f"border:3px solid {bc};"
                     f"box-shadow:0 2px 8px rgba(0,0,0,0.1),inset 0 1px 2px rgba(255,255,255,1);"
                     f"font-family:'Syne',sans-serif;font-size:1rem;font-weight:800;color:#1a1a2e;")
-        html += (f'<div class="alt-card">'+
-                 f'<div style="{circle_s}">{s}</div>'+
-                 f'<div class="alt-info">'+
-                 f'<div class="alt-name">{name}</div>'+
-                 f'<div class="alt-brand">{brand}{(" · "+ns_txt) if ns_txt else ""}</div>'+
-                 f'</div>'+
-                 f'<a class="alt-link" href="?barcode={code}">Analizza →</a>'+
+        html += (f'<div class="alt-card">'
+                 f'<div style="{circle_s}">{s}</div>'
+                 f'<div class="alt-info">'
+                 f'<div class="alt-name">{name}</div>'
+                 f'<div class="alt-brand">{brand}{(" · "+ns_txt) if ns_txt else ""}</div>'
+                 f'</div>'
+                 f'<a class="alt-link" href="?barcode={code}">Analizza →</a>'
                  f'</div>')
     html += '</div>'
     st.markdown(html, unsafe_allow_html=True)
 
+
 def render_generic(p, source, pal):
-    name = e(p.get("product_name") or p.get("title") or "Prodotto")
-    brand = e(p.get("brands") or p.get("brand") or "Marca non disponibile")
-    img = p.get("image_url") or ""
+    name       = e(p.get("product_name") or p.get("title") or "Prodotto")
+    brand      = e(p.get("brands")  or p.get("brand")  or "Marca non disponibile")
+    img        = p.get("image_url") or ""
     categories = e(p.get("categories") or "Categoria non disponibile")
-    ing = e((p.get("ingredients_text") or "").strip()) or "Ingredienti non disponibili"
+    ing        = e((p.get("ingredients_text") or "").strip()) or "Ingredienti non disponibili"
     source_txt = e(source or "Fonte esterna")
 
-    img_html = (
-        f'<img class="hero-img" src="{img}" onerror="this.style.display=\'none\'">'
-        if img else '<div class="hero-img-ph">📦</div>'
-    )
+    img_html = (f'<img class="hero-img" src="{img}" onerror="this.style.display=\'none\'">'
+                if img else '<div class="hero-img-ph">📦</div>')
     st.markdown(
         f'<div class="hero">'
         f'<div class="hero-top">{img_html}'
         f'<div class="hero-info"><div class="hero-name">{name}</div>'
         f'<div class="hero-brand">{brand}</div></div></div>'
         f'<div class="section-sub">Fonte dati: {source_txt}</div>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
+        f'</div>', unsafe_allow_html=True)
     st.markdown(
         f'<div class="section"><div class="section-title">Caratterizzazione Base</div>'
         f'<div class="divider"></div>'
         f'<div class="ing-text"><strong>Categoria:</strong> {categories}</div>'
         f'<div class="ing-text" style="margin-top:8px;"><strong>Ingredienti:</strong> {ing}</div>'
         f'<div class="section-sub" style="margin-top:12px;">Dati nutrizionali non disponibili nella fonte corrente, quindi non posso calcolare lo score FSA in modo affidabile.</div>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
+        f'</div>', unsafe_allow_html=True)
+
 
 # ── MAIN ──────────────────────────────────────────────────────
 def main():
     params = st.query_params
-    chip = normalize_query_value(params.get("barcode",""))
+    chip = normalize_query_value(params.get("barcode", ""))
 
-    # ── Pre-calcola score e palette PRIMA di iniettare CSS ──
     default_pal = get_palette(45)
     product = None; did = None; source = None
     score = 45; pal = default_pal
@@ -851,13 +896,12 @@ def main():
                 score, pos, neg, details = 50, [], [], {}
             pal = get_palette(score)
 
-    # Inietta CSS UNA SOLA VOLTA con palette corretta
     st.markdown(render_css(pal), unsafe_allow_html=True)
 
     st.markdown(f'<div class="ps-header"><div class="ps-logo">Product<span class="ps-logo-accent">Scan</span></div></div>', unsafe_allow_html=True)
 
     st.markdown('<div class="search-wrap">', unsafe_allow_html=True)
-    ci, cb = st.columns([4,1])
+    ci, cb = st.columns([4, 1])
     with ci: bc_input = st.text_input("bc", value=chip, placeholder="EAN-13 / UPC", label_visibility="collapsed")
     with cb: clicked = st.button("→")
     st.markdown('</div>', unsafe_allow_html=True)
@@ -866,7 +910,6 @@ def main():
     components.html(scanner_html(pal), height=380, scrolling=False)
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # Ricerca manuale (bottone)
     if clicked and bc_input.strip() and bc_input.strip() != chip:
         ph2 = st.empty()
         with st.spinner(""):
@@ -893,5 +936,6 @@ def main():
 
     st.markdown('<div class="ps-footer">FSA Nutrient Profiling Model · Open Food Facts (CC BY-SA)</div>', unsafe_allow_html=True)
 
-if __name__=="__main__":
+
+if __name__ == "__main__":
     main()
