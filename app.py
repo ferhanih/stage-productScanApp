@@ -413,7 +413,7 @@ DBS = [
     ("generic", "Open Products Facts","https://world.openproductsfacts.org"),
 ]
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=604800, show_spinner=False)
 def _fetch_off_single(barcode: str, base: str) -> dict | None:
     """
     Single OFF v2 API call:
@@ -479,6 +479,7 @@ def search(barcode: str, placeholder) -> tuple[dict | None, str | None, str | No
     product, db_id, source = fetch_off(barcode, placeholder)
     if product:
         return product, db_id, source
+
     return fetch_upc(barcode, placeholder)
 
 
@@ -492,7 +493,7 @@ def normalize_query_value(v):
 # Minimal field set for bulk search queries (reduces payload size)
 _SEARCH_FIELDS = "product_name,brands,nutriscore_grade,nova_group,nutriments,additives_tags,categories_tags,code"
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=604800, show_spinner=False)
 def get_suggestions(p: dict, current_score: int):
     """
     Find better alternatives via the OFF v2 Search API.
@@ -506,6 +507,7 @@ def get_suggestions(p: dict, current_score: int):
 
     last_err = ("no_cat", "")
 
+
     for cat in candidates[:3]:
         try:
             r = _HTTP.get(
@@ -513,7 +515,7 @@ def get_suggestions(p: dict, current_score: int):
                 params={
                     "categories_tags": cat,
                     "sort_by":         "unique_scans_n",
-                    "page_size":       15,
+                    "page_size":       30,
                     "fields":          _SEARCH_FIELDS,
                 },
                 timeout=(4, 12),
@@ -521,7 +523,7 @@ def get_suggestions(p: dict, current_score: int):
             if r.status_code != 200:
                 last_err = ("http_err", str(r.status_code))
                 continue
-
+            print(cat)
             prods  = (r.json()).get("products") or []
 
             if not prods:
@@ -529,12 +531,16 @@ def get_suggestions(p: dict, current_score: int):
                 continue
 
             results = []
+
             for prod in prods:
                 if not prod.get("product_name"):
                     continue
                 s, _, _, _ = compute_fsa_score(prod)
                 if s > current_score + 3:
                     results.append((s, prod))
+
+                if len(results) >= 4:
+                    break
 
             results.sort(key=lambda x: -x[0])
             if results:
