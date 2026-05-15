@@ -189,15 +189,15 @@ button[data-testid="stBaseButton-secondary"] {{
   background: rgba(255,255,255,0.92);
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
-  padding: 14px 20px;
+  padding: 14px 20px 16px 20px;
   border-bottom: var(--bdr);
-  display: flex;
+  display: flex; 
   align-items: center;
   justify-content: space-between;
   position: sticky;
   top: 0;
   z-index: 100;
-  padding-bottom: 50px
+  margin-bottom: 20px;
 }}
 .ps-logo {{
   font-family: var(--font);
@@ -236,31 +236,42 @@ button[data-testid="stBaseButton-secondary"] {{
 /* ── SEARCH AREA ── */
 .search-wrap {{
   background: var(--card);
-  padding: 18px 16px 14px;
+  padding: 12px 16px 12px;
   border-bottom: var(--bdr);
-  margin-top: 10px;
+  margin-top: 0;          /* ← était 10px */
 }}
 .search-wrap [data-testid="stColumn"],
 .search-wrap [data-testid="stColumn"] > div,
 .search-wrap [data-testid="stHorizontalBlock"] {{
-  background: var(--bg) !important;
+  background: var(--card) !important;  /* ← était var(--bg) */
 }}
 
-div[data-testid="stVerticalBlock"] > button {{
-  border-radius: 12px;
-  height: 46px;
+/* Supprime la règle scanner-wrap iframe */
+.scanner-wrap {{
+  background: var(--card);
+  padding: 12px 16px;
+  border-bottom: var(--bdr);
 }}
-div[data-baseweb="base-input"] > input {{
-    background: gray;
-    
+
+/* Supprime le gap Streamlit entre les éléments */
+div[data-testid="stVerticalBlock"] {{
+  gap: 0 !important;        /* ← ajoute !important */
+  background: var(--card) !important;
 }}
-.btn-search button {{
-  width: 100%;
-  height: 46px;
-  border-radius: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.element-container {{
+  margin: 0 !important;
+  padding: 0 !important;    /* ← ajoute padding 0 */
+}}
+
+/* Supprime les backgrounds parasites des colonnes Streamlit */
+[data-testid="stColumn"] {{
+  background: var(--card) !important;
+  padding: 0 !important;
+}}
+[data-testid="stHorizontalBlock"] {{
+  background: var(--card) !important;
+  gap: 8px !important;
+  padding: 0 !important;
 }}
 
 
@@ -471,6 +482,12 @@ div[data-baseweb="base-input"] > input {{
 .element-container:has(.scanner-wrap) + .element-container .hero {{
   margin-top: 0 !important;
 }}
+.bc-input{{
+margin-bottom: 10px;
+  border-bottom: var(--bdr);
+
+}}
+
 .section {{
   background: var(--card);
   margin-top: 6px;
@@ -835,7 +852,7 @@ div[data-baseweb="base-input"] > input {{
 }}
 .scanner-wrap {{
   background: var(--card);
-  padding: 0 16px 14px;
+  padding: 30px 16px 14px;
   margin-top: 0;
   border-bottom: none;
 }}
@@ -843,9 +860,6 @@ div[data-baseweb="base-input"] > input {{
 #alternativesSection {{
     padding-bottom: 100px;
     margin-bottom: 0;
-}}
-.section:last-of-type {{
-    padding-bottom: 100px;
 }}
 
 .ps-footer {{
@@ -891,6 +905,10 @@ div[data-baseweb="base-input"] > input {{
   height: 18px;
 }}
 
+#product-presentation {{
+ padding-top: 30px
+}}
+
 /* ── MOBILE RESPONSIVE ── */
 @media (max-width: 480px) {{
   .block-container {{ max-width: 100% !important; }}
@@ -913,6 +931,7 @@ div[data-baseweb="base-input"] > input {{
   .section-title {{ font-size: 0.64rem !important; }}
   .factor-name {{ font-size: 0.82rem !important; }}
 }}
+
 </style>
 <script>
 (function() {{
@@ -1292,9 +1311,93 @@ def normalize_query_value(v):
 
 # ── SUGGESTIONS ──────────────────────────────────────────────
 _SEARCH_FIELDS = "product_name,brands,nutriscore_grade,nova_group,nutriments,additives_tags,categories_tags,code"
+@st.cache_data(ttl=604800, show_spinner=False)
+def get_suggestions(cats: tuple, current_score, current_ns: str = ""):
+    """
+    Cerca alternative migliori per un alimento.
+    Strategia:
+      1) Categorie da più specifica a più generale (top 5)
+      2) Fallback Nutri-Score: filtro nutrition_grades=a sulla categoria più generale
+      3) Soglia di miglioramento adattiva (≥+3 inizialmente, scende a +1 nel fallback)
+    """
+    # `reversed`: OFF ordina dal più generale al più specifico → invertiamo
+    candidates = [c for c in reversed(cats) if c.startswith("en:") and len(c) > 5]
+    if not candidates:
+        return ("no_cat", str(cats[:3]))
+
+    fields = ("product_name,brands,nutriscore_grade,nova_group,nutriments,"
+              "additives_tags,categories_tags,code,image_url")
+    last_err = ("no_cat", "")
+
+    # ── Step 1: ricerca per categoria, soglia +3 ──
+    for cat in candidates[:5]:
+        try:
+            r = _HTTP.get(
+                "https://world.openfoodfacts.org/api/v2/search",
+                params={
+                    "categories_tags": cat,
+                    "sort_by": "unique_scans_n",
+                    "page_size": 30,
+                    "fields": _SEARCH_FIELDS,
+                },
+                timeout=(4, 12),
+            )
+            if r.status_code != 200:
+                last_err = ("http_err", str(r.status_code)); continue
+            prods = r.json().get("products", [])
+            if not prods:
+                last_err = ("empty", cat); continue
+            results = []
+            for prod in prods:
+                if not prod.get("product_name"): continue
+                s, _, _, _ = compute_fsa_score(prod)
+                if s > current_score + 3:
+                    results.append((s, prod))
+            results.sort(key=lambda x: -x[0])
+            if results:
+                return results[:4]
+            last_err = ("none_better", f"score={current_score}")
+        except Exception as ex:
+            last_err = ("exception", str(ex)[:80]); continue
+
+    # ── Step 2: fallback Nutri-Score=a sulla categoria più generale ──
+    # Senza questo, prodotti molto specifici (es. "biscotti al cioccolato senza glutine")
+    # spesso non hanno alternative migliori entro la categoria stretta.
+    #current_ns = (p.get("nutriscore_grade") or "").lower()
+    if current_ns in "cdez" or current_score < 50:
+        broad_cats = candidates[-3:]  # top categorie più generali
+        for cat in broad_cats:
+            try:
+                r = _HTTP.get(
+                    "https://world.openfoodfacts.org/api/v2/search",
+                    params={
+                        "categories_tags": cat,
+                        "nutrition_grades_tags": "a",
+                        "sort_by": "unique_scans_n",
+                        "page_size": 20,
+                        "fields": _SEARCH_FIELDS,
+                    },
+                    timeout=(4, 12),
+                )
+                if r.status_code != 200: continue
+                prods = r.json().get("products", [])
+                if not prods: continue
+                results = []
+                for prod in prods:
+                    if not prod.get("product_name"): continue
+                    s, _, _, _ = compute_fsa_score(prod)
+                    if s > current_score + 1:  # soglia ridotta nel fallback
+                        results.append((s, prod))
+                results.sort(key=lambda x: -x[0])
+                if results:
+                    return results[:4]
+            except Exception as ex:
+                last_err = ("exception", str(ex)[:80]); continue
+
+    return last_err
 
 @st.cache_data(ttl=604800, show_spinner=False)
-def get_suggestions(cats: tuple, current_score: int):
+def get_suggestions_old(cats: tuple, current_score: int):
     global last_err
     candidates = [c for c in reversed(cats) if c.startswith("en:") and len(c) > 5]
     if not candidates:
@@ -1553,7 +1656,7 @@ def render_food(p, score, pos, neg, details, pal):
                 f'</svg>')
 
     st.markdown(
-        f'<div class="hero">'
+        f'<div class="hero" id="product-presentation">'
         f'<div class="hero-top">{img_html}'
         f'<div class="hero-meta">'
         f'<div class="hero-name">{name}</div>'
@@ -1698,7 +1801,7 @@ def render_alternatives(suggestions, pal):
                  f'<div class="alt-name">{name}</div>'
                  f'<div class="alt-brand">{brand}{(" · " + ns_txt) if ns_txt else ""}</div>'
                  f'</div>'
-                 f'<a class="alt-link" href="?barcode={code}">Analizza →</a>'
+                 f'<a class="alt-link" href="?barcode={code}" target="_top"">Analizza →</a>'
                  f'</div>')
     html += '</div>'
     st.markdown(html, unsafe_allow_html=True)
@@ -1731,32 +1834,15 @@ def render_generic(p, source, pal):
 
 # ── MAIN ──────────────────────────────────────────────────────
 def main():
-    global pos, neg, details
     params = st.query_params
-    chip = normalize_query_value(params.get("barcode", ""))
+    barcode = normalize_query_value(params.get("barcode", ""))
+    tab = normalize_query_value(params.get("tab", "")) or "search"
 
-    default_pal = get_palette(45)
-    product = None
-    did = None
-    source = None
-    score = 45
-    pal = default_pal
-    pre_ph = st.empty()
-
-    if chip:
-        with st.spinner(""):
-            product, did, source = search(chip, pre_ph)
-        pre_ph.empty()
-        if product:
-            if did == "food":
-                score, pos, neg, details = compute_fsa_score(product)
-            else:
-                score, pos, neg, details = 50, [], [], {}
-            pal = get_palette(score)
-
+    # ── 1. CSS par défaut en premier (palette neutre) ──
+    pal = get_palette(45)
     st.markdown(render_css(pal), unsafe_allow_html=True)
 
-    # Header
+    # ── 2. Header fixe ──
     st.markdown(
         f'<div class="ps-header">'
         f'<div style="display:flex;align-items:center;gap:9px;">'
@@ -1765,75 +1851,98 @@ def main():
         f'<div class="ps-tag">Nutri</div>'
         f'</div>', unsafe_allow_html=True)
 
-    # # Search
-    # st.markdown('<div class="search-wrap">', unsafe_allow_html=True)
-    # ci, cb = st.columns([4, 1])
-    # with ci:
-    #     bc_input = st.text_input("bc", value=chip, placeholder="Codice EAN-13 / UPC", label_visibility="collapsed")
-    # with cb:
-    #     clicked = st.button("Cerca", key="btn_search")
-    # st.markdown('</div>', unsafe_allow_html=True)
-    #
-    # # Scanner
-    # st.markdown('<div class="scanner-wrap">', unsafe_allow_html=True)
-    # components.html(scanner_html(pal), height=90, scrolling=False)
-    # st.markdown('</div>', unsafe_allow_html=True)
-    #
-    # if clicked and bc_input.strip() and bc_input.strip() != chip:
-    #     ph2 = st.empty()
-    #     with st.spinner(""):
-    #         search_start = time.perf_counter()
-    #         product, did, source = search(bc_input.strip(), ph2)
-    #         search_end = time.perf_counter()
-    #     print("time for searchs", search_end - search_start)
-    #     ph2.empty()
-    #     if product:
-    #         if did == "food":
-    #             score, pos, neg, details = compute_fsa_score(product)
-    #         else:
-    #             score, pos, neg, details = 50, [], [], {}
+    # ── 3. Fetch produit (si barcode dans URL) ──
+    product = None; did = None; source = None
+    score = 45; pos = []; neg = []; details = {}
 
-    if not product and chip:
-        st.markdown(f'<div class="ps-err">⚠ Prodotto non trovato: <strong>{e(chip)}</strong></div>',
-                    unsafe_allow_html=True)
-    elif product:
+    if barcode:
+        pre_ph = st.empty()
+        with st.spinner(""):
+            product, did, source = search(barcode, pre_ph)
+        pre_ph.empty()
+        if product:
+            if did == "food":
+                score, pos, neg, details = compute_fsa_score(product)
+            else:
+                score, pos, neg, details = 50, [], [], {}
+            # ── 4. Re-injecter le CSS avec la bonne palette ──
+            pal = get_palette(score)
+            st.markdown(render_css(pal), unsafe_allow_html=True)
+
+    # ── 5. Contenu selon le tab ──
+    if tab == "scan":
+        st.markdown('<div class="scanner-wrap">', unsafe_allow_html=True)
+        components.html(scanner_html(pal), height=90, scrolling=False)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    elif tab == "search":
+        st.markdown('<div class="search-wrap">', unsafe_allow_html=True)
+        ci, cb = st.columns([4, 1])
+        with ci:
+            st.markdown('<div class="bc-input">', unsafe_allow_html=True)
+            bc_input = st.text_input("bc", value=barcode,
+                                     placeholder="Codice EAN-13 / UPC",
+                                     label_visibility="collapsed")
+            st.markdown('</div', unsafe_allow_html=True)
+        with cb:
+            clicked = st.button("Search", key="btn_search")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        if clicked and bc_input.strip() and bc_input.strip() != barcode:
+            st.query_params.update({"barcode": bc_input.strip()})
+            st.rerun()
+
+    # ── 6. Affichage produit ──
+    if product:
         if did == "food":
             render_food(product, score, pos, neg, details, pal)
             with st.spinner("Ricerca alternative…"):
-                sugg_start = time.perf_counter()
-                sugg = get_suggestions(tuple(product.get('categories_tags') or []), score)
-                sugg_end = time.perf_counter()
-            print("time for suggestions", sugg_end - sugg_start)
+                sugg = get_suggestions(
+                    tuple(product.get("categories_tags") or []),
+                    score,
+                    (product.get("nutriscore_grade") or "").lower()
+                )
             render_alternatives(sugg, pal)
         elif did == "beauty":
             st.markdown(
-                f'<div class="section"><div class="section-hd"><div class="section-title">{e(product.get("product_name", ""))}</div></div></div>',
+                f'<div class="section"><div class="section-hd">'
+                f'<div class="section-title">{e(product.get("product_name", ""))}'
+                f'</div></div></div>',
                 unsafe_allow_html=True)
         elif did == "generic":
             render_generic(product, source, pal)
 
+    elif barcode and not product:
+        st.markdown(
+            f'<div class="ps-err">⚠ Prodotto non trovato: <strong>{e(barcode)}</strong></div>',
+            unsafe_allow_html=True)
+
+    # ── 7. Bottom nav (toujours en dernier) ──
+    bc_param = f"&barcode={barcode}" if barcode else ""
     st.markdown(
         f'<div class="ps-footer">'
-        
-        f'<button class="ps-footer-btn active">'
+
+        f'<a href="?tab=search" target="_top" '
+        f'class="ps-footer-btn {"active" if tab == "search" else ""}">'
         f'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'
         f'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>'
-        f'<span>Cerca</span></button>'
-        
-        f'<button class="ps-footer-btn">'
+        f'<span>Search</span></a>'
+
+        f'<a href="?tab=history" target="_top" '
+        f'class="ps-footer-btn {"active" if tab == "history" else ""}">'
         f'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'
         f'<path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/>'
         f'<rect x="9" y="3" width="6" height="4" rx="1"/></svg>'
-        f'<span>Storico</span></button>'
-        
-        f'<button class="ps-footer-btn">'
+        f'<span>History</span></a>'
+
+        f'<a href="?tab=scan" target="_top" '
+        f'class="ps-footer-btn {"active" if tab == "scan" else ""}">'
         f'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'
         f'<path d="M23 7 16 12 23 17V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>'
-        f'<span>Scan</span></button>'
-        
+        f'<span>Scan</span></a>'
+
         f'</div>',
-        unsafe_allow_html=True
-    )
+        unsafe_allow_html=True)
 
 
 if __name__ == "__main__":
