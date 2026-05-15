@@ -1,14 +1,17 @@
 import time
+import logging
+from idlelib import history
+
 import streamlit as st
 import requests
 import re
-import streamlit.components.v1 as components
 import math
 
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 st.set_page_config(page_title="ProductScan", page_icon="🔍", layout="wide", initial_sidebar_state="collapsed")
+logging.getLogger("asyncio").setLevel(logging.CRITICAL)
 
 
 # ── HTTP SESSION ──────────────────────────────────────────────
@@ -858,8 +861,12 @@ margin-bottom: 10px;
 }}
 
 #alternativesSection {{
-    padding-bottom: 100px;
-    margin-bottom: 0;
+    padding-bottom: 80px;
+    margin-bottom: 80px;
+}}
+
+.content-end {{
+  height: 80px;
 }}
 
 .ps-footer {{
@@ -881,7 +888,7 @@ margin-bottom: 10px;
   align-items: center;
   gap: 3px;
   flex: 1;
-  padding: 6px 4px;
+  padding: 3px 2px;
   border-radius: 9px;
   border: none;
   background: transparent;
@@ -1310,7 +1317,7 @@ def normalize_query_value(v):
 
 
 # ── SUGGESTIONS ──────────────────────────────────────────────
-_SEARCH_FIELDS = "product_name,brands,nutriscore_grade,nova_group,nutriments,additives_tags,categories_tags,code"
+_SEARCH_FIELDS = "product_name,brands,nutriscore_grade,nova_group,nutriments,additives_tags,categories_tags,code,image_url"
 @st.cache_data(ttl=604800, show_spinner=False)
 def get_suggestions(cats: tuple, current_score, current_ns: str = ""):
     """
@@ -1325,12 +1332,10 @@ def get_suggestions(cats: tuple, current_score, current_ns: str = ""):
     if not candidates:
         return ("no_cat", str(cats[:3]))
 
-    fields = ("product_name,brands,nutriscore_grade,nova_group,nutriments,"
-              "additives_tags,categories_tags,code,image_url")
     last_err = ("no_cat", "")
 
     # ── Step 1: ricerca per categoria, soglia +3 ──
-    for cat in candidates[:5]:
+    for cat in candidates[:3]:
         try:
             r = _HTTP.get(
                 "https://world.openfoodfacts.org/api/v2/search",
@@ -1374,7 +1379,7 @@ def get_suggestions(cats: tuple, current_score, current_ns: str = ""):
                         "categories_tags": cat,
                         "nutrition_grades_tags": "a",
                         "sort_by": "unique_scans_n",
-                        "page_size": 20,
+                        "page_size": 30,
                         "fields": _SEARCH_FIELDS,
                     },
                     timeout=(4, 12),
@@ -1395,52 +1400,6 @@ def get_suggestions(cats: tuple, current_score, current_ns: str = ""):
                 last_err = ("exception", str(ex)[:80]); continue
 
     return last_err
-
-@st.cache_data(ttl=604800, show_spinner=False)
-def get_suggestions_old(cats: tuple, current_score: int):
-    global last_err
-    candidates = [c for c in reversed(cats) if c.startswith("en:") and len(c) > 5]
-    if not candidates:
-        return ("no_cat", str(cats[:3]))
-
-    for cat in candidates[:3]:
-        try:
-            r = _HTTP.get(
-                "https://world.openfoodfacts.org/api/v2/search",
-                params={
-                    "categories_tags": cat,
-                    "sort_by": "unique_scans_n",
-                    "page_size": 30,
-                    "fields": _SEARCH_FIELDS,
-                },
-                timeout=(4, 12),
-            )
-            if r.status_code != 200:
-                last_err = ("http_err", str(r.status_code))
-                continue
-
-            prods = (r.json()).get("products") or []
-            prods = [p for p in prods if p.get("nutriscore_grade", "") in ("a", "b", "c", "d")]
-            if not prods:
-                last_err = ("empty", cat)
-                continue
-            results = []
-            for prod in prods:
-                if not prod.get("product_name"): continue
-                s, _, _, _ = compute_fsa_score(prod)
-                if s > current_score + 3:
-                    results.append((s, prod))
-                if len(results) >= 4: break
-            results.sort(key=lambda x: -x[0])
-            if results:
-                return results[:4]
-            last_err = ("none_better", f"score={current_score}")
-        except requests.exceptions.Timeout:
-            last_err = ("exception", "timeout")
-        except Exception as ex:
-            last_err = ("exception", str(ex)[:80])
-    return last_err
-
 
 # ── HELPERS ──────────────────────────────────────────────────
 def e(s): return str(s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -1522,113 +1481,23 @@ def bar_color(v, low, high):
 
 # ── SCANNER ──────────────────────────────────────────────────
 def scanner_html(pal):
-    return f"""
-<script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
-<style>
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&family=DM+Mono:wght@400;500&display=swap');
-*, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
-html, body {{ background: {pal['card']}; font-family: 'DM Sans', sans-serif; overflow: hidden;}}
-#wrap {{ padding: 0; margin: 6px; }}
-#btn {{
-  width: 100%; padding: 14px;
-  background: {pal['accent']}; border: none;
-  font-size: 0.9rem; 
-  border-radius: 10px;
-  box-shadow: 0 2px 10px {pal['glow']};
-  transition: opacity .15s, transform .12s;
-}}
-#btn:active {{ opacity: .85; transform: scale(.99); }}
-#stop {{
-  width: 100%; padding: 14px;
-  background: transparent; color: {pal['accent']};
-  border: 1.5px solid {pal['accent']}; font-size: 0.9rem; font-weight: 600;
-  cursor: pointer; border-radius: 10px; display: none;
-  letter-spacing: -0.01em;
-}}
-#vp {{ width: 100%; border-radius: 10px; overflow: hidden; background: #000; margin-top: 10px; }}
-#vp video {{ width: 100% !important; display: block; }}
-#vp canvas.drawingBuffer {{ display: none !important; }}
-#msg {{
-  font-size: 0.66rem; color: {pal['sub']}; padding: 7px 0 0; text-align: center;
-  font-family: 'DM Mono', monospace; letter-spacing: 0.03em; opacity: .75;
-}}
-#found {{
-  display: none; margin-top: 9px; padding: 14px;
-  background: {pal['score_bg']}; border-radius: 10px; text-align: center;
-  border: 1px solid {pal['score_border']};
-}}
-#found-code {{
-  font-size: 0.9rem; color: {pal['text']}; font-weight: 700;
-  margin-bottom: 11px; font-family: 'DM Mono', monospace; letter-spacing: 0.06em;
-}}
-#found-btn {{
-  display: inline-block; padding: 10px 22px;
-  background: {pal['accent']}; color: #fff; border: none;
-  font-size: 0.83rem; font-weight: 600; cursor: pointer;
-  border-radius: 8px; text-decoration: none; letter-spacing: -0.01em;
-}}
-</style>
-<div id="wrap">
-  <button id="btn" onclick="go()">Scan Barcode</button>
-  <button id="stop" onclick="halt()">⏹ Ferma</button>
-  <div id="vp"></div>
-  <div id="msg"></div>
-  <div id="found">
-    <div id="found-code"></div>
-    <a id="found-btn" href="#" target="_top">Cerca Prodotto →</a>
-  </div>
-</div>
-<script>
-var running=false,done=false;
-
-function resize(){{
-  var h = document.getElementById('wrap').scrollHeight;
-  window.parent.postMessage({{type:'streamlit:setFrameHeight', height: h + 4}}, '*');
-}}
-
-// Send height on load and after any DOM change
-window.addEventListener('load', function(){{ setTimeout(resize, 50); }});
-new MutationObserver(resize).observe(document.getElementById('wrap'), {{subtree:true, childList:true, attributes:true}});
-
-function go(){{
-  done=false;
-  document.getElementById('btn').style.display='none';
-  document.getElementById('stop').style.display='block';
-  document.getElementById('found').style.display='none';
-  document.getElementById('msg').textContent='Inizializzazione fotocamera...';
-  resize();
-  Quagga.init({{
-    inputStream:{{type:"LiveStream",target:document.getElementById('vp'),
-      constraints:{{facingMode:"environment",width:{{ideal:1280}},height:{{ideal:720}}}}}},
-    decoder:{{readers:["ean_reader","ean_8_reader","upc_reader","upc_e_reader","code_128_reader"]}},
-    locate:true,numOfWorkers:2,frequency:10
-  }},function(err){{
-    if(err){{document.getElementById('msg').textContent='Errore: '+err;halt();return;}}
-    Quagga.start();running=true;
-    document.getElementById('msg').textContent='Inquadra il barcode...';
-    setTimeout(resize, 300);
-  }});
-  Quagga.onDetected(function(r){{
-    if(done)return;done=true;
-    var code=r.codeResult.code;
-    halt();
-    document.getElementById('msg').textContent='✓ Rilevato';
-    document.getElementById('found-code').textContent=code;
-    var target=window.top.location.pathname+'?barcode='+encodeURIComponent(code);
-    document.getElementById('found-btn').href=target;
-    document.getElementById('found').style.display='block';
-    resize();
-    setTimeout(function(){{window.top.location.href=target;}},250);
-  }});
-}}
-function halt(){{
-  if(running){{try{{Quagga.stop();}}catch(e){{}}running=false;}}
-  document.getElementById('btn').style.display='block';
-  document.getElementById('stop').style.display='none';
-  document.getElementById('vp').innerHTML='';
-  resize();
-}}
-</script>"""
+    # Pass palette colors as URL params so scanner.html can style itself
+    params = (
+        f"?accent={pal['accent'].lstrip('#')}"
+        f"&card={pal['card'].lstrip('#')}"
+        f"&sub={pal['sub'].lstrip('#')}"
+        f"&score_bg={pal['score_bg'].lstrip('#')}"
+        f"&score_border={pal['score_border'].lstrip('#')}"
+        f"&text_col={pal['text'].lstrip('#')}"
+        f"&glow={pal['glow']}"
+    )
+    return (
+        f'<iframe src="app/static/scanner.html{params}" '
+        f'allow="camera" '
+        f'style="width:100%;height:90px;border:none;overflow:hidden;" '
+        f'id="scanner-iframe">'
+        f'</iframe>'
+    )
 
 
 # ── RENDER FOOD ───────────────────────────────────────────────
@@ -1754,6 +1623,23 @@ def render_food(p, score, pos, neg, details, pal):
         f'{chart}{nf}{kcal_s}{nova_s}{fsa_info}'
         f'</div>', unsafe_allow_html=True)
 
+def render_single_product(p):
+    name = e(p.get("product_name") or p.get("product_name_it") or p.get("product_name_en") or "Prodotto")
+    brand = e(p.get("brands", ""))
+    img = p.get("image_url") or p.get("image_front_url") or ""
+    ns = (p.get("nutriscore_grade") or "").lower()
+    img_html = (f'<img class="hero-img" src="{img}" onerror="this.style.display=\'none\'">'
+                if img else '<div class="hero-img-ph">📦</div>')
+
+    st.markdown(
+        f'<div class="hero" id="product-presentation">'
+        f'<div class="hero-top">{img_html}'
+        f'<div class="hero-meta">'
+        f'<div class="hero-name">{name}</div>'
+        f'<div class="hero-brand">{brand}</div>'
+        f'{nutriscore_html(ns)}'
+        f'</div></div>', unsafe_allow_html=True)
+
 
 def render_alternatives(suggestions, pal):
     sub = pal["sub"]
@@ -1771,9 +1657,9 @@ def render_alternatives(suggestions, pal):
             f'<div class="section" id=alternativesSection><div class="section-hd"><div class="section-title">Alternative Migliori</div></div>'
             f'<div style="font-family:\'DM Sans\',sans-serif;font-size:.76rem;color:{sub};padding:4px 0 8px;letter-spacing:-0.01em;">{msg}</div></div>',
             unsafe_allow_html=True)
-        return
+        return msg
     if not suggestions:
-        return
+        return None
     html = (f'<div class="section">'
             f'<div class="section-hd"><div class="section-title">Alternative Migliori</div></div>'
             f'<div class="section-sub">Prodotti simili con score FSA superiore</div>')
@@ -1805,6 +1691,7 @@ def render_alternatives(suggestions, pal):
                  f'</div>')
     html += '</div>'
     st.markdown(html, unsafe_allow_html=True)
+    return None
 
 
 def render_generic(p, source, pal):
@@ -1836,7 +1723,11 @@ def render_generic(p, source, pal):
 def main():
     params = st.query_params
     barcode = normalize_query_value(params.get("barcode", ""))
-    tab = normalize_query_value(params.get("tab", "")) or "search"
+    tab = normalize_query_value(params.get("tab", ""))
+    msg = ""
+
+    if not barcode and tab == "":
+        tab = "search"
 
     # ── 1. CSS par défaut en premier (palette neutre) ──
     pal = get_palette(45)
@@ -1851,6 +1742,9 @@ def main():
         f'<div class="ps-tag">Nutri</div>'
         f'</div>', unsafe_allow_html=True)
 
+    if "history" not in st.session_state:
+        st.session_state.history = []
+
     # ── 3. Fetch produit (si barcode dans URL) ──
     product = None; did = None; source = None
     score = 45; pos = []; neg = []; details = {}
@@ -1861,21 +1755,20 @@ def main():
             product, did, source = search(barcode, pre_ph)
         pre_ph.empty()
         if product:
+            # We put the actual produt in the history
+            if product not in st.session_state.history:
+                st.session_state.history.append(product)
+
             if did == "food":
                 score, pos, neg, details = compute_fsa_score(product)
             else:
                 score, pos, neg, details = 50, [], [], {}
-            # ── 4. Re-injecter le CSS avec la bonne palette ──
             pal = get_palette(score)
             st.markdown(render_css(pal), unsafe_allow_html=True)
 
-    # ── 5. Contenu selon le tab ──
-    if tab == "scan":
-        st.markdown('<div class="scanner-wrap">', unsafe_allow_html=True)
-        components.html(scanner_html(pal), height=90, scrolling=False)
-        st.markdown('</div>', unsafe_allow_html=True)
+    # ── 5. tab content ──
 
-    elif tab == "search":
+    if tab == "search":
         st.markdown('<div class="search-wrap">', unsafe_allow_html=True)
         ci, cb = st.columns([4, 1])
         with ci:
@@ -1889,10 +1782,22 @@ def main():
         st.markdown('</div>', unsafe_allow_html=True)
 
         if clicked and bc_input.strip() and bc_input.strip() != barcode:
+            st.query_params.clear()
             st.query_params.update({"barcode": bc_input.strip()})
             st.rerun()
 
-    # ── 6. Affichage produit ──
+        st.markdown('<div class="scanner-wrap">', unsafe_allow_html=True)
+        st.markdown(scanner_html(pal), unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    if tab == "history":
+        if st.session_state.history:
+            for product in st.session_state.history:
+                render_single_product(product)
+        else:
+            st.warning('There is no product in the history')
+
+    # ── 6. product display ──
     if product:
         if did == "food":
             render_food(product, score, pos, neg, details, pal)
@@ -1902,7 +1807,8 @@ def main():
                     score,
                     (product.get("nutriscore_grade") or "").lower()
                 )
-            render_alternatives(sugg, pal)
+            msg = render_alternatives(sugg, pal)
+
         elif did == "beauty":
             st.markdown(
                 f'<div class="section"><div class="section-hd">'
@@ -1917,8 +1823,11 @@ def main():
             f'<div class="ps-err">⚠ Prodotto non trovato: <strong>{e(barcode)}</strong></div>',
             unsafe_allow_html=True)
 
-    # ── 7. Bottom nav (toujours en dernier) ──
-    bc_param = f"&barcode={barcode}" if barcode else ""
+    if msg is None:
+        st.markdown('<div class="content-end"></div>', unsafe_allow_html=True)
+
+
+    # ── 7. buttons nav ──
     st.markdown(
         f'<div class="ps-footer">'
 
@@ -1935,11 +1844,6 @@ def main():
         f'<rect x="9" y="3" width="6" height="4" rx="1"/></svg>'
         f'<span>History</span></a>'
 
-        f'<a href="?tab=scan" target="_top" '
-        f'class="ps-footer-btn {"active" if tab == "scan" else ""}">'
-        f'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'
-        f'<path d="M23 7 16 12 23 17V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>'
-        f'<span>Scan</span></a>'
 
         f'</div>',
         unsafe_allow_html=True)

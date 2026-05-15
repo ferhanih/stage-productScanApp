@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<script src="quagga.min.js"></script>
+<script src="zxing-browser.min.js"></script>
+
+<script>
+  // Read palette colors from URL params, fall back to neutral amber defaults
+  var p = new URLSearchParams(location.search);
+  var accent     = '#' + (p.get('accent')       || 'D97706');
+  var card       = '#' + (p.get('card')         || 'F7F0E4');
+  var sub        = '#' + (p.get('sub')          || '706050');
+  var score_bg   = '#' + (p.get('score_bg')     || 'F0E2C8');
+  var score_bdr  = '#' + (p.get('score_border') || 'DEC070');
+  var text_col   = '#' + (p.get('text_col')     || '1A1200');
+  var glow       =       (p.get('glow')         || 'rgba(217,119,6,0.16)');
+
+  // Inject CSS variables before the page renders to avoid flash
+  document.write(
+    '<style>:root{' +
+    '--accent:'    + accent    + ';' +
+    '--card:'      + card      + ';' +
+    '--sub:'       + sub       + ';' +
+    '--score-bg:'  + score_bg  + ';' +
+    '--score-bdr:' + score_bdr + ';' +
+    '--text:'      + text_col  + ';' +
+    '--glow:'      + glow      + ';' +
+    '}</style>'
+  );
+</script>
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&family=DM+Mono:wght@400;500&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--card); font-family: 'DM Sans', sans-serif; overflow: hidden; }
+#wrap { padding: 0; margin: 6px; }
+
+/* ── Button row ── */
+.btn-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 0;
+}
+.btn-row > * { flex: 1; }
+
+#btn {
+  width: 100%; padding: 14px;
+  background: var(--accent); color: #fff; border: none;
+  font-size: 0.9rem; font-weight: 700; font-family: 'DM Sans', sans-serif;
+  border-radius: 10px; cursor: pointer;
+  box-shadow: 0 2px 10px var(--glow);
+  transition: opacity .15s, transform .12s;
+  letter-spacing: -0.01em;
+}
+#btn:active { opacity: .85; transform: scale(.99); }
+
+/* Label acting as button for the file input */
+#upload-label {
+  display: flex; align-items: center; justify-content: center;
+  width: 100%; padding: 14px;
+  background: var(--card); color: var(--accent);
+  border: 1.5px solid var(--accent); font-size: 0.9rem; font-weight: 700;
+  font-family: 'DM Sans', sans-serif;
+  border-radius: 10px; cursor: pointer;
+  transition: background .15s, color .15s;
+  letter-spacing: -0.01em;
+  user-select: none; -webkit-tap-highlight-color: transparent;
+}
+#upload-label:hover { background: var(--accent); color: #fff; }
+#upload-label:active { opacity: .85; transform: scale(.99); }
+
+/* Real file input placed off-screen (iOS-safe — not display:none) */
+#file-input {
+  position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0;
+}
+
+#stop {
+  width: 100%; padding: 14px;
+  background: transparent; color: var(--accent);
+  border: 1.5px solid var(--accent); font-size: 0.9rem; font-weight: 600;
+  cursor: pointer; border-radius: 10px; display: none;
+  letter-spacing: -0.01em; margin-top: 8px;
+}
+#vp { width: 100%; border-radius: 10px; overflow: hidden; background: #000; margin-top: 10px; }
+#vp video { width: 100% !important; display: block; }
+#vp canvas.drawingBuffer { display: none !important; }
+#msg {
+  font-size: 0.66rem; color: var(--sub); padding: 7px 0 0; text-align: center;
+  font-family: 'DM Mono', monospace; letter-spacing: 0.03em; opacity: .75;
+  min-height: 1.4em;
+}
+#progress {
+  height: 3px; background: rgba(0,0,0,0.07); border-radius: 2px;
+  margin: 6px 0 0; display: none; overflow: hidden;
+}
+#progress > div {
+  height: 100%; background: var(--accent); border-radius: 2px;
+  width: 0%; transition: width 0.2s;
+}
+#found {
+  display: none; margin-top: 9px; padding: 14px;
+  background: var(--score-bg); border-radius: 10px; text-align: center;
+  border: 1px solid var(--score-bdr);
+}
+#found-code {
+  font-size: 0.9rem; color: var(--text); font-weight: 700;
+  margin-bottom: 11px; font-family: 'DM Mono', monospace; letter-spacing: 0.06em;
+}
+#found-btn {
+  display: inline-block; padding: 10px 22px;
+  background: var(--accent); color: #fff; border: none;
+  font-size: 0.83rem; font-weight: 600; cursor: pointer;
+  border-radius: 8px; text-decoration: none; letter-spacing: -0.01em;
+}
+</style>
+</head>
+<body>
+
+<div id="wrap">
+  <div class="btn-row">
+    <button id="btn" onclick="go()">📷 Scan camera</button>
+    <label id="upload-label" for="file-input">🖼️ Carica foto</label>
+  </div>
+  <!-- File input off-screen: the <label for="file-input"> opens it natively,
+       even on iOS Safari, without a JS .click() call -->
+  <input type="file" id="file-input" accept="image/*" onchange="scanFile(event)">
+  <button id="stop" onclick="halt()">⏹ Ferma</button>
+  <div id="vp"></div>
+  <div id="progress"><div></div></div>
+  <div id="msg">Inquadra il barcode o carica una foto</div>
+  <div id="found">
+    <div id="found-code"></div>
+    <a id="found-btn" href="#" target="_top">Cerca Prodotto →</a>
+  </div>
+</div>
+
+<script>
+var running = false, done = false;
+// Consensus: require 2 identical consecutive reads before confirming
+var consensusBuf = []; var CONSENSUS_N = 2;
+
+/* ── Utils ── */
+function resize() {
+  var h = document.getElementById('wrap').scrollHeight;
+  window.parent.postMessage({type: 'streamlit:setFrameHeight', height: h + 4}, '*');
+}
+window.addEventListener('load', function() { setTimeout(resize, 50); });
+new MutationObserver(resize).observe(document.getElementById('wrap'), {subtree: true, childList: true, attributes: true});
+
+function setProgress(pct) {
+  var p = document.getElementById('progress');
+  p.style.display = (pct > 0 && pct < 100) ? 'block' : 'none';
+  p.firstChild.style.width = pct + '%';
+}
+
+function isValidBarcode(code) {
+  if (!code) return false;
+  var s = String(code).replace(/\s/g, '');
+  return /^[0-9]{8}$/.test(s) || /^[0-9]{12}$/.test(s) ||
+         /^[0-9]{13}$/.test(s) || /^[0-9]{14}$/.test(s);
+}
+
+function confirmCode(code) {
+  done = true;
+  halt();
+  setProgress(100);
+  document.getElementById('msg').textContent = '✓ Rilevato';
+  document.getElementById('found-code').textContent = code;
+  var target = window.top.location.pathname + '?barcode=' + encodeURIComponent(code);
+  document.getElementById('found-btn').href = target;
+  document.getElementById('found').style.display = 'block';
+  resize();
+  setTimeout(function() { window.top.location.href = target; }, 250);
+}
+
+/* ── Quagga (live camera) ── */
+function go() {
+  done = false; consensusBuf = []; setProgress(0);
+  document.getElementById('btn').style.display = 'none';
+  document.getElementById('stop').style.display = 'block';
+  document.getElementById('found').style.display = 'none';
+  document.getElementById('msg').textContent = 'Inizializzazione fotocamera...';
+  resize();
+  Quagga.init({
+    inputStream: {
+      type: "LiveStream", target: document.getElementById('vp'),
+      constraints: {facingMode: "environment", width: {ideal: 1280}, height: {ideal: 720}}
+    },
+    decoder: {readers: ["ean_reader", "ean_8_reader", "upc_reader", "upc_e_reader", "code_128_reader"]},
+    locate: true, numOfWorkers: 2, frequency: 10
+  }, function(err) {
+    if (err) { document.getElementById('msg').textContent = 'Errore: ' + err; halt(); return; }
+    Quagga.start(); running = true;
+    document.getElementById('msg').textContent = 'Inquadra il barcode...';
+    setTimeout(resize, 300);
+  });
+  Quagga.onDetected(function(r) {
+    if (done) return;
+    var code = r.codeResult.code;
+    if (!isValidBarcode(code)) return;
+    // Consensus: push candidate, keep only last N reads
+    consensusBuf.push(code);
+    if (consensusBuf.length > CONSENSUS_N) consensusBuf.shift();
+    setProgress(consensusBuf.length / CONSENSUS_N * 100);
+    if (consensusBuf.length >= CONSENSUS_N && consensusBuf.every(function(c) { return c === consensusBuf[0]; })) {
+      confirmCode(consensusBuf[0]);
+    }
+  });
+}
+
+function halt() {
+  if (running) { try { Quagga.stop(); } catch(e) {} running = false; }
+  document.getElementById('btn').style.display = 'block';
+  document.getElementById('stop').style.display = 'none';
+  document.getElementById('vp').innerHTML = '';
+  setProgress(0);
+  resize();
+}
+
+/* ── Scan from image file ── */
+
+// Load a File → canvas (fixes EXIF orientation, caps at maxDim px)
+async function loadFileToCanvas(file, maxDim) {
+  var bmp;
+  try {
+    bmp = await createImageBitmap(file, {imageOrientation: 'from-image'});
+  } catch(e1) {
+    try { bmp = await createImageBitmap(file); } catch(e2) {
+      // Last-resort fallback: data URL → Image (iOS HEIC, old Safari)
+      var dataUrl = await new Promise(function(res, rej) {
+        var fr = new FileReader();
+        fr.onload = function() { res(fr.result); };
+        fr.onerror = rej;
+        fr.readAsDataURL(file);
+      });
+      var img = new Image();
+      await new Promise(function(res, rej) {
+        img.onload = res; img.onerror = rej; img.src = dataUrl;
+        setTimeout(function() { rej(new Error('timeout')); }, 8000);
+      });
+      bmp = img;
+    }
+  }
+  var w = bmp.width || bmp.naturalWidth;
+  var h = bmp.height || bmp.naturalHeight;
+  var scale = Math.min(1, maxDim / Math.max(w, h));
+  var cw = Math.max(1, Math.round(w * scale));
+  var ch = Math.max(1, Math.round(h * scale));
+  var canvas = document.createElement('canvas');
+  canvas.width = cw; canvas.height = ch;
+  canvas.getContext('2d').drawImage(bmp, 0, 0, cw, ch);
+  if (bmp.close) try { bmp.close(); } catch(e) {}
+  return canvas;
+}
+
+// Try ZXing on a canvas at a given rotation (0/90/180/270)
+async function zxingDecodeRotated(srcCanvas, rotation) {
+  var rotCanvas = srcCanvas;
+  if (rotation !== 0) {
+    var w = srcCanvas.width, h = srcCanvas.height;
+    var rw = (rotation === 90 || rotation === 270) ? h : w;
+    var rh = (rotation === 90 || rotation === 270) ? w : h;
+    rotCanvas = document.createElement('canvas');
+    rotCanvas.width = rw; rotCanvas.height = rh;
+    var rctx = rotCanvas.getContext('2d');
+    rctx.translate(rw / 2, rh / 2);
+    rctx.rotate(rotation * Math.PI / 180);
+    rctx.drawImage(srcCanvas, -w / 2, -h / 2);
+  }
+  var dataUrl = rotCanvas.toDataURL('image/png');
+  var img = new Image();
+  await new Promise(function(res, rej) {
+    img.onload = res; img.onerror = rej; img.src = dataUrl;
+    setTimeout(function() { rej(new Error('img timeout')); }, 5000);
+  });
+  var reader = new window.ZXingBrowser.BrowserMultiFormatReader();
+  return await reader.decodeFromImageElement(img);
+}
+
+async function scanFile(ev) {
+  var file = ev.target.files && ev.target.files[0];
+  var msg = document.getElementById('msg');
+  if (!file) { msg.textContent = 'Nessun file selezionato.'; return; }
+  done = false; consensusBuf = [];
+  document.getElementById('found').style.display = 'none';
+  msg.textContent = 'Caricamento (' + Math.round(file.size / 1024) + ' KB)...';
+  resize();
+
+  var canvas;
+  try {
+    canvas = await loadFileToCanvas(file, 1600);
+    msg.textContent = 'Immagine ' + canvas.width + '×' + canvas.height + ', analisi barcode...';
+  } catch(err) {
+    msg.textContent = 'Errore caricamento foto: ' + (err.message || err);
+    ev.target.value = ''; resize(); return;
+  }
+
+  // 1) Native BarcodeDetector (Chrome/Edge/Android) — fastest path
+  if ('BarcodeDetector' in window) {
+    try {
+      var detector = new window.BarcodeDetector({
+        formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'itf']
+      });
+      var codes = await detector.detect(canvas);
+      if (codes && codes.length && isValidBarcode(codes[0].rawValue)) {
+        confirmCode(codes[0].rawValue); return;
+      }
+    } catch(e) {}
+  }
+
+  // 2) ZXing across 4 rotations (universal fallback, works on iOS Safari)
+  // Wait up to 5s for ZXing to finish loading (CDN may be slow)
+  if (!window.ZXingBrowser) {
+    msg.textContent = 'Loading ZXing...';
+    resize();
+    await new Promise(function(res) {
+      var attempts = 0;
+      var interval = setInterval(function() {
+        attempts++;
+        if (window.ZXingBrowser || attempts >= 50) { clearInterval(interval); res(); }
+      }, 100);
+    });
+  }
+  if (window.ZXingBrowser) {
+    var rotations = [0, 90, 180, 270];
+    for (var i = 0; i < rotations.length; i++) {
+      msg.textContent = 'Attempt ' + (i + 1) + '/4 (rotation ' + rotations[i] + '°)...';
+      resize();
+      try {
+        var result = await zxingDecodeRotated(canvas, rotations[i]);
+        if (result && isValidBarcode(result.getText())) {
+          confirmCode(result.getText()); return;
+        }
+      } catch(e) { /* try next rotation */ }
+    }
+  } else {
+    msg.textContent = 'ZXing failed to load. Check your connection and reload.';
+    ev.target.value = ''; resize(); return;
+  }
+
+  msg.textContent = 'Nessun barcode rilevato. Prova da più vicino, senza riflessi, con il barcode a fuoco.';
+  ev.target.value = '';
+  resize();
+}
+</script>
+</body>
+</html>
