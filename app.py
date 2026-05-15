@@ -1,7 +1,8 @@
-import time
+from datetime import datetime
+from streamlit_local_storage import LocalStorage
 import logging
-from idlelib import history
-
+import json
+import os
 import streamlit as st
 import requests
 import re
@@ -28,6 +29,30 @@ def _make_session() -> requests.Session:
 
 
 _HTTP = _make_session()
+localStorage = LocalStorage()
+
+
+# ── HISTORY PERSISTENCE ─────────────────────────────────────
+def add_to_history(product):
+    """Aggiunge il prodotto in cima alla cronologia, dedup per codice."""
+
+    h_products = localStorage.getItem("products") or []
+
+    new_product = {
+        "code": product.get("code"),
+        "name": product.get("product_name"),
+        "brand": product.get("brands"),
+        "img_url": product.get("image_url") or product.get("image_front_url")
+    }
+
+    h_products = [p for p in h_products if p.get("code") != new_product["code"]]
+
+    if (len(h_products) >= 15):
+        h_products.pop()
+
+    h_products.insert(0, new_product)
+
+    localStorage.setItem("products", h_products)
 
 
 # ── PALETTE ──────────────────────────────────────────────────
@@ -825,6 +850,77 @@ margin-bottom: 10px;
   color: #fff;
 }}
 
+/* ── HISTORY LIST ── */
+.hist-item {{
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--card);
+  border-bottom: 1px solid rgba(0,0,0,0.04);
+  text-decoration: none !important;
+  color: var(--text) !important;
+}}
+.hist-item:active {{ background: var(--bar-bg); }}
+.hist-img {{
+  width: 54px;
+  height: 54px;
+  border-radius: 10px;
+  object-fit: contain;
+  background: var(--bg);
+  border: var(--bdr);
+  flex-shrink: 0;
+}}
+.hist-img-ph {{
+  width: 54px;
+  height: 54px;
+  border-radius: 10px;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  flex-shrink: 0;
+  border: var(--bdr);
+}}
+.hist-info {{
+  flex: 1;
+  min-width: 0;
+}}
+.hist-name {{
+  font-family: var(--font);
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}}
+.hist-brand {{
+  font-family: var(--font);
+  font-size: 0.74rem;
+  color: var(--sub);
+  margin-top: 2px;
+}}
+.hist-score {{
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  min-width: 46px;
+}}
+.hist-score-n {{
+  font-family: var(--font);
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1;
+}}
+.hist-score-d {{
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  color: var(--sub);
+}}
+
 /* ── MISC ── */
 .src-badge {{
   display: inline-block;
@@ -1058,85 +1154,13 @@ def compute_fsa_score(p):
 def a_en_calculator(kj: int) -> int:
     return min(10, int(kj / 335))
 
-    # if kj <= 335:
-    #     a_en = 0
-    # elif kj <= 670:
-    #     a_en = 1
-    # elif kj <= 1005:
-    #     a_en = 2
-    # elif kj <= 1340:
-    #     a_en = 3
-    # elif kj <= 1675:
-    #     a_en = 4
-    # elif kj <= 2010:
-    #     a_en = 5
-    # elif kj <= 2345:
-    #     a_en = 6
-    # elif kj <= 2680:
-    #     a_en = 7
-    # elif kj <= 3015:
-    #     a_en = 8
-    # elif kj <= 3350:
-    #     a_en = 9
-    # else:
-    #     a_en = 10
-    # return a_en
-
 
 def a_sug_calculator(sug: int) -> int:
     return min(10, int(sug / 4.5))
 
-    # if sug <= 4.5:
-    #     a_sug = 0
-    # elif sug <= 9:
-    #     a_sug = 1
-    # elif sug <= 13.5:
-    #     a_sug = 2
-    # elif sug <= 18:
-    #     a_sug = 3
-    # elif sug <= 22.5:
-    #     a_sug = 4
-    # elif sug <= 27:
-    #     a_sug = 5
-    # elif sug <= 31:
-    #     a_sug = 6
-    # elif sug <= 36:
-    #     a_sug = 7
-    # elif sug <= 40:
-    #     a_sug = 8
-    # elif sug <= 45:
-    #     a_sug = 9
-    # else:
-    #     a_sug = 10
-    # return a_sug
-
 
 def a_sat_calculator(sat: int ) -> int:
     return max(0, min(10, int(sat) - 1))
-
-    if sat <= 1:
-        a_sat = 0
-    elif sat <= 2:
-        a_sat = 1
-    elif sat <= 3:
-        a_sat = 2
-    elif sat <= 4:
-        a_sat = 3
-    elif sat <= 5:
-        a_sat = 4
-    elif sat <= 6:
-        a_sat = 5
-    elif sat <= 7:
-        a_sat = 6
-    elif sat <= 8:
-        a_sat = 7
-    elif sat <= 9:
-        a_sat = 8
-    elif sat <= 10:
-        a_sat = 9
-    else:
-        a_sat = 10
-    return a_sat
 
 
 def fvn_calculator(fvn: int) -> int:
@@ -1154,64 +1178,13 @@ def fvn_calculator(fvn: int) -> int:
 def prot_calculator(prot: int) -> int:
     return min(5, int(prot / 1.6) - 1)
 
-    if prot <= 1.6:
-        c_pro = 0
-    elif prot <= 3.2:
-        c_pro = 1
-    elif prot <= 4.8:
-        c_pro = 2
-    elif prot <= 6.4:
-        c_pro = 3
-    elif prot <= 8.0:
-        c_pro = 4
-    else:
-        c_pro = 5
-    return c_pro
-
 
 def fiber_calculator(fiber: int) -> int:
     return next((i for i, t in enumerate([0.9, 1.9, 2.8, 3.7, 4.7]) if fiber <= t), 5)
-    # if fiber <= 0.9:
-    #     c_fib = 0
-    # elif fiber <= 1.9:
-    #     c_fib = 1
-    # elif fiber <= 2.8:
-    #     c_fib = 2
-    # elif fiber <= 3.7:
-    #     c_fib = 3
-    # elif fiber <= 4.7:
-    #     c_fib = 4
-    # else:
-    #     c_fib = 5
-    # return c_fib
 
 
 def sodium_calculator(sodium: int) -> int:
     return min(10, int(sodium / 90))
-
-    if sodium <= 90:
-        a_sod = 0
-    elif sodium <= 180:
-        a_sod = 1
-    elif sodium <= 270:
-        a_sod = 2
-    elif sodium <= 360:
-        a_sod = 3
-    elif sodium <= 450:
-        a_sod = 4
-    elif sodium <= 540:
-        a_sod = 5
-    elif sodium <= 630:
-        a_sod = 6
-    elif sodium <= 720:
-        a_sod = 7
-    elif sodium <= 810:
-        a_sod = 8
-    elif sodium <= 900:
-        a_sod = 9
-    else:
-        a_sod = 10
-    return a_sod
 
 
 # ── ADDITIVI ────────────────────────────────────────────────
@@ -1320,21 +1293,12 @@ def normalize_query_value(v):
 _SEARCH_FIELDS = "product_name,brands,nutriscore_grade,nova_group,nutriments,additives_tags,categories_tags,code,image_url"
 @st.cache_data(ttl=604800, show_spinner=False)
 def get_suggestions(cats: tuple, current_score, current_ns: str = ""):
-    """
-    Cerca alternative migliori per un alimento.
-    Strategia:
-      1) Categorie da più specifica a più generale (top 5)
-      2) Fallback Nutri-Score: filtro nutrition_grades=a sulla categoria più generale
-      3) Soglia di miglioramento adattiva (≥+3 inizialmente, scende a +1 nel fallback)
-    """
-    # `reversed`: OFF ordina dal più generale al più specifico → invertiamo
     candidates = [c for c in reversed(cats) if c.startswith("en:") and len(c) > 5]
     if not candidates:
         return ("no_cat", str(cats[:3]))
 
     last_err = ("no_cat", "")
 
-    # ── Step 1: ricerca per categoria, soglia +3 ──
     for cat in candidates[:3]:
         try:
             r = _HTTP.get(
@@ -1365,12 +1329,8 @@ def get_suggestions(cats: tuple, current_score, current_ns: str = ""):
         except Exception as ex:
             last_err = ("exception", str(ex)[:80]); continue
 
-    # ── Step 2: fallback Nutri-Score=a sulla categoria più generale ──
-    # Senza questo, prodotti molto specifici (es. "biscotti al cioccolato senza glutine")
-    # spesso non hanno alternative migliori entro la categoria stretta.
-    #current_ns = (p.get("nutriscore_grade") or "").lower()
     if current_ns in "cdez" or current_score < 50:
-        broad_cats = candidates[-3:]  # top categorie più generali
+        broad_cats = candidates[-3:]
         for cat in broad_cats:
             try:
                 r = _HTTP.get(
@@ -1391,7 +1351,7 @@ def get_suggestions(cats: tuple, current_score, current_ns: str = ""):
                 for prod in prods:
                     if not prod.get("product_name"): continue
                     s, _, _, _ = compute_fsa_score(prod)
-                    if s > current_score + 1:  # soglia ridotta nel fallback
+                    if s > current_score + 1:
                         results.append((s, prod))
                 results.sort(key=lambda x: -x[0])
                 if results:
@@ -1479,9 +1439,15 @@ def bar_color(v, low, high):
     return "#16A34A" if v <= low else "#D97706" if v <= high else "#DC2626"
 
 
+def score_color(s):
+    if s is None: return "#999"
+    if s >= 60: return "#16A34A"
+    if s >= 45: return "#D97706"
+    return "#DC2626"
+
+
 # ── SCANNER ──────────────────────────────────────────────────
 def scanner_html(pal):
-    # Pass palette colors as URL params so scanner.html can style itself
     params = (
         f"?accent={pal['accent'].lstrip('#')}"
         f"&card={pal['card'].lstrip('#')}"
@@ -1515,7 +1481,6 @@ def render_food(p, score, pos, neg, details, pal):
     img_html = (f'<img class="hero-img" src="{img}" onerror="this.style.display=\'none\'">'
                 if img else '<div class="hero-img-ph">📦</div>')
 
-    # SVG ring
     circ = 2 * math.pi * 27
     dash = circ * score / 100
     ring_svg = (f'<svg width="68" height="68" viewBox="0 0 68 68" style="transform:rotate(-90deg)">'
@@ -1623,23 +1588,6 @@ def render_food(p, score, pos, neg, details, pal):
         f'{chart}{nf}{kcal_s}{nova_s}{fsa_info}'
         f'</div>', unsafe_allow_html=True)
 
-def render_single_product(p):
-    name = e(p.get("product_name") or p.get("product_name_it") or p.get("product_name_en") or "Prodotto")
-    brand = e(p.get("brands", ""))
-    img = p.get("image_url") or p.get("image_front_url") or ""
-    ns = (p.get("nutriscore_grade") or "").lower()
-    img_html = (f'<img class="hero-img" src="{img}" onerror="this.style.display=\'none\'">'
-                if img else '<div class="hero-img-ph">📦</div>')
-
-    st.markdown(
-        f'<div class="hero" id="product-presentation">'
-        f'<div class="hero-top">{img_html}'
-        f'<div class="hero-meta">'
-        f'<div class="hero-name">{name}</div>'
-        f'<div class="hero-brand">{brand}</div>'
-        f'{nutriscore_html(ns)}'
-        f'</div></div>', unsafe_allow_html=True)
-
 
 def render_alternatives(suggestions, pal):
     sub = pal["sub"]
@@ -1664,7 +1612,6 @@ def render_alternatives(suggestions, pal):
             f'<div class="section-hd"><div class="section-title">Alternative Migliori</div></div>'
             f'<div class="section-sub">Prodotti simili con score FSA superiore</div>')
     for s, prod in suggestions:
-        # Grade A (>=75) and B (>=60) both use green; C (>=45) amber; below red
         if s >= 60:
             bc = "#16A34A"
         elif s >= 45:
@@ -1719,6 +1666,44 @@ def render_generic(p, source, pal):
         f'</div>', unsafe_allow_html=True)
 
 
+# ── HISTORY RENDER ───────────────────────────────────────────
+import streamlit as st
+
+def render_history():
+    history_products = localStorage.getItem("products") or []
+
+    if len(history_products) == 0:
+        st.warning("There is no product in the history")
+        return
+
+    rows = []
+
+    for p in history_products:
+
+        code = p.get("code", "")
+        name = p.get("name") or p.get("product_name") or "Product"
+        brand = p.get("brand") or p.get("brands", "")
+        img = p.get("img_url") or p.get("image_url") or p.get("image_front_url") or ""
+
+        img_html = (
+            f'<img class="hist-img" src="{img}" />'
+            if img else
+            '<div class="hist-img placeholder"></div>'
+        )
+
+        rows.append(f"""
+            <a class="hist-item" href="?barcode={code}" target="_top">
+                {img_html}
+                <div class="hist-info">
+                    <div class="hist-name">{name}</div>
+                    <div class="hist-brand">{brand}</div>
+                </div>
+            </a>
+        """)
+
+    st.markdown("".join(rows), unsafe_allow_html=True)
+
+
 # ── MAIN ──────────────────────────────────────────────────────
 def main():
     params = st.query_params
@@ -1742,9 +1727,6 @@ def main():
         f'<div class="ps-tag">Nutri</div>'
         f'</div>', unsafe_allow_html=True)
 
-    if "history" not in st.session_state:
-        st.session_state.history = []
-
     # ── 3. Fetch produit (si barcode dans URL) ──
     product = None; did = None; source = None
     score = 45; pos = []; neg = []; details = {}
@@ -1755,16 +1737,13 @@ def main():
             product, did, source = search(barcode, pre_ph)
         pre_ph.empty()
         if product:
-            # We put the actual produt in the history
-            if product not in st.session_state.history:
-                st.session_state.history.append(product)
-
             if did == "food":
                 score, pos, neg, details = compute_fsa_score(product)
             else:
                 score, pos, neg, details = 50, [], [], {}
             pal = get_palette(score)
             st.markdown(render_css(pal), unsafe_allow_html=True)
+            add_to_history(product)
 
     # ── 5. tab content ──
 
@@ -1791,11 +1770,7 @@ def main():
         st.markdown('</div>', unsafe_allow_html=True)
 
     if tab == "history":
-        if st.session_state.history:
-            for product in st.session_state.history:
-                render_single_product(product)
-        else:
-            st.warning('There is no product in the history')
+        render_history()
 
     # ── 6. product display ──
     if product:
@@ -1826,7 +1801,6 @@ def main():
     if msg is None:
         st.markdown('<div class="content-end"></div>', unsafe_allow_html=True)
 
-
     # ── 7. buttons nav ──
     st.markdown(
         f'<div class="ps-footer">'
@@ -1843,7 +1817,6 @@ def main():
         f'<path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/>'
         f'<rect x="9" y="3" width="6" height="4" rx="1"/></svg>'
         f'<span>History</span></a>'
-
 
         f'</div>',
         unsafe_allow_html=True)
