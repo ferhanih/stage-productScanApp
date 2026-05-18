@@ -300,6 +300,7 @@ button[data-testid="stBaseButton-secondary"] {{
   padding: 20px 20px 16px;
   border-bottom: var(--bdr);
   margin: 50px
+  margin-bottom: 100px
 }}
 .search-field-label {{
   font-family: var(--mono);
@@ -1276,7 +1277,8 @@ def compute_fsa_score(p):
     c_fib = fiber_calculator(fiber)
     prot = nutriments.get("proteins_100g") or 0
     c_pro = prot_calculator(prot)
-    fvn = nutriments.get("fruits-vegetables-nuts-estimate-from-ingredients_100g") or nutriments.get("fruits-vegetables-nuts_100g") or 0
+    fvn = nutriments.get("fruits-vegetables-nuts-estimate-from-ingredients_100g") or nutriments.get(
+        "fruits-vegetables-nuts_100g") or 0
     c_fvn = fvn_calculator(fvn)
     score_c = c_fib + c_pro + c_fvn
     fsa_raw = score_a - score_c
