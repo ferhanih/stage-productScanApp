@@ -1,12 +1,11 @@
-from datetime import datetime
 from streamlit_local_storage import LocalStorage
+from datetime import date
 import logging
-import json
-import os
 import streamlit as st
 import requests
 import re
 import math
+
 
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -34,62 +33,49 @@ localStorage = LocalStorage()
 
 # ── HISTORY PERSISTENCE ─────────────────────────────────────
 def add_to_history(product):
-    """Aggiunge il prodotto in cima alla cronologia, dedup per codice."""
-
     h_products = localStorage.getItem("products") or []
-
     new_product = {
         "code": product.get("code"),
         "name": product.get("product_name"),
         "brand": product.get("brands"),
-        "img_url": product.get("image_url") or product.get("image_front_url")
+        "img_url": product.get("image_url") or product.get("image_front_url"),
+        "addedDate": date.today().isoformat()
     }
-
     h_products = [p for p in h_products if p.get("code") != new_product["code"]]
-
-    if (len(h_products) >= 15):
+    if len(h_products) >= 15:
         h_products.pop()
-
     h_products.insert(0, new_product)
-
     localStorage.setItem("products", h_products)
 
 
 # ── PALETTE ──────────────────────────────────────────────────
 def get_palette(score):
-
     match score:
         case _ if score >= 80:
             return {"bg": "#DFF0E8", "card": "#EEF7F2", "accent": "#16A34A", "accent2": "#15803D",
                     "text": "#0F1A14", "sub": "#5A7A6A", "bar_bg": "#C8DFCF", "medal": "🥇", "label": "Eccellente",
                     "score_fg": "#16A34A", "score_bg": "#D8EEE2", "score_border": "#9ECDB0",
-                    "pill_bg": "#C4E8D2", "pill_fg": "#14532D",
-                    "glow": "rgba(22,163,74,0.16)"}
+                    "pill_bg": "#C4E8D2", "pill_fg": "#14532D", "glow": "rgba(22,163,74,0.16)"}
         case _ if score >= 60:
             return {"bg": "#DFF5EE", "card": "#EEF9F4", "accent": "#0D9E6A", "accent2": "#0A8A5C",
                     "text": "#0A1F16", "sub": "#4A7A62", "bar_bg": "#C0E5D4", "medal": "🥈", "label": "Buono",
                     "score_fg": "#0D9E6A", "score_bg": "#D5F0E5", "score_border": "#8ED4B8",
-                    "pill_bg": "#C0E8D4", "pill_fg": "#0A4D30",
-                    "glow": "rgba(13,158,106,0.16)"}
+                    "pill_bg": "#C0E8D4", "pill_fg": "#0A4D30", "glow": "rgba(13,158,106,0.16)"}
         case _ if score >= 40:
             return {"bg": "#EDE4D2", "card": "#F7F0E4", "accent": "#D97706", "accent2": "#B45309",
                     "text": "#1A1200", "sub": "#706050", "bar_bg": "#E0D0B0", "medal": "🥉", "label": "Nella media",
                     "score_fg": "#D97706", "score_bg": "#F0E2C8", "score_border": "#DEC070",
-                    "pill_bg": "#E8D4A0", "pill_fg": "#78350F",
-                    "glow": "rgba(217,119,6,0.16)"}
+                    "pill_bg": "#E8D4A0", "pill_fg": "#78350F", "glow": "rgba(217,119,6,0.16)"}
         case _ if score >= 20:
             return {"bg": "#EDE0D4", "card": "#F7EEE4", "accent": "#EA580C", "accent2": "#C2410C",
                     "text": "#1A0800", "sub": "#706050", "bar_bg": "#E0CCBA", "medal": "🔶", "label": "Scarso",
                     "score_fg": "#EA580C", "score_bg": "#F0DECE", "score_border": "#E8A870",
-                    "pill_bg": "#E8CEAC", "pill_fg": "#7C2D12",
-                    "glow": "rgba(234,88,12,0.15)"}
+                    "pill_bg": "#E8CEAC", "pill_fg": "#7C2D12", "glow": "rgba(234,88,12,0.15)"}
         case _:
             return {"bg": "#EEDADC", "card": "#F7ECEE", "accent": "#DC2626", "accent2": "#B91C1C",
                     "text": "#1A0008", "sub": "#706068", "bar_bg": "#E0C4C8", "medal": "⚠️", "label": "Molto scarso",
                     "score_fg": "#DC2626", "score_bg": "#F0D8DC", "score_border": "#E89CA8",
-                    "pill_bg": "#E8C8CE", "pill_fg": "#7F1D1D",
-                    "glow": "rgba(220,38,38,0.14)"}
-
+                    "pill_bg": "#E8C8CE", "pill_fg": "#7F1D1D", "glow": "rgba(220,38,38,0.14)"}
 
 
 # ── CSS ──────────────────────────────────────────────────────
@@ -123,6 +109,16 @@ def render_css(p):
   --mono: 'DM Mono', monospace;
 }}
 
+div[data-testid="stSpinner"] {{
+    position: fixed !important;
+    top: 50% !important;
+    left: 50% !important;
+    transform: translate(-50%, -50%) !important;
+    z-index: 9999 !important;
+    background: rgba(0,0,0,0.5);
+    padding: 2rem;
+}}
+
 *, *::before, *::after {{ box-sizing: border-box; }}
 
 html, body, .stApp {{
@@ -146,6 +142,7 @@ section[data-testid="stSidebar"] {{ display: none !important; }}
   max-width: 480px !important;
   margin: 0 auto !important;
 }}
+
 [data-testid="stTextInput"] label {{ display: none !important; }}
 [data-testid="stMarkdownContainer"] p {{
   color: var(--text) !important;
@@ -154,7 +151,6 @@ section[data-testid="stSidebar"] {{ display: none !important; }}
 div[data-testid="stVerticalBlock"] {{ gap: 0; background: var(--card) !important; }}
 .element-container {{ margin: 0 !important; }}
 
-/* Search button */
 button[data-testid="stBaseButton-secondary"] {{
   width: 100%;
   margin: 9px;
@@ -166,14 +162,15 @@ button[data-testid="stBaseButton-secondary"] {{
   border: var(--bdr) !important;
   border-radius: var(--r-sm) !important;
   color: var(--text) !important;
-  font-family: var(--font) !important;
-  font-size: 0.95rem !important;
+  font-family: var(--mono) !important;
+  font-size: 0.92rem !important;
   font-weight: 400 !important;
   padding: 14px 16px !important;
   box-shadow: var(--sh-xs) !important;
   transition: border-color 0.2s, box-shadow 0.2s !important;
   outline: none !important;
   height: 50px !important;
+  letter-spacing: 0.04em !important;
 }}
 [data-testid="stTextInput"] input:focus {{
   border-color: var(--accent) !important;
@@ -182,7 +179,9 @@ button[data-testid="stBaseButton-secondary"] {{
 [data-testid="stTextInput"] input::placeholder {{
   color: var(--sub) !important;
   opacity: 0.55;
-  font-size: 0.9rem !important;
+  font-size: 0.88rem !important;
+  font-family: var(--font) !important;
+  letter-spacing: 0 !important;
 }}
 
 /* ── BUTTON ── */
@@ -219,13 +218,12 @@ button[data-testid="stBaseButton-secondary"] {{
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   padding: 14px 20px 16px 20px;
   border-bottom: var(--bdr);
-  display: flex; 
+  display: flex;
   align-items: center;
   justify-content: space-between;
   position: sticky;
   top: 0;
   z-index: 100;
-  margin-bottom: 20px;
 }}
 .ps-logo {{
   font-family: var(--font);
@@ -235,19 +233,16 @@ button[data-testid="stBaseButton-secondary"] {{
   letter-spacing: -0.04em;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+}}
+.ps-logo-dot {{
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
 }}
 .ps-logo span {{ color: var(--accent); }}
-.ps-logo-icon {{
-  width: 28px;
-  height: 28px;
-  background: var(--accent);
-  border-radius: 7px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.75rem;
-}}
 .ps-tag {{
   font-family: var(--mono);
   font-size: 0.58rem;
@@ -261,52 +256,226 @@ button[data-testid="stBaseButton-secondary"] {{
   font-weight: 500;
 }}
 
-/* ── SEARCH AREA ── */
+/* ── SEARCH PAGE REDESIGN ── */
+
+/* Hero section */
+.search-hero {{
+  background: var(--card);
+  padding: 32px 0px 28px;
+  text-align: center;
+  border-bottom: var(--bdr);
+}}
+
+.search-hero-icon {{
+  width: 60px;
+  height: 60px;
+  background: #F0FDF4;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16px;
+  border: 1px solid #BBF7D0;
+  font-size: 1.6rem;
+}}
+.search-hero-title {{
+  font-family: var(--font);
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.04em;
+  margin-bottom: 7px;
+}}
+.search-hero-sub {{
+  font-family: var(--font);
+  font-size: 0.82rem;
+  color: var(--sub);
+  line-height: 1.65;
+  max-width: 270px;
+  margin: 0 auto;
+}}
+
+/* Input area */
 .search-wrap {{
   background: var(--card);
-  padding: 12px 16px 12px;
+  padding: 20px 20px 16px;
   border-bottom: var(--bdr);
-  margin-top: 0;          /* ← était 10px */
+  margin: 50px
+}}
+.search-field-label {{
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  font-weight: 500;
+  color: var(--sub);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  margin-bottom: 10px;
+  opacity: 0.8;
 }}
 .search-wrap [data-testid="stColumn"],
 .search-wrap [data-testid="stColumn"] > div,
 .search-wrap [data-testid="stHorizontalBlock"] {{
-  background: var(--card) !important;  /* ← était var(--bg) */
+  background: var(--card) !important;
 }}
 
-/* Supprime la règle scanner-wrap iframe */
+/* Scanner section */
 .scanner-wrap {{
   background: var(--card);
-  padding: 12px 16px;
+  padding: 16px 20px;
   border-bottom: var(--bdr);
 }}
-
-/* Supprime le gap Streamlit entre les éléments */
-div[data-testid="stVerticalBlock"] {{
-  gap: 0 !important;        /* ← ajoute !important */
-  background: var(--card) !important;
+.scanner-field-label {{
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  font-weight: 500;
+  color: var(--sub);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  margin-bottom: 10px;
+  opacity: 0.8;
 }}
-.element-container {{
-  margin: 0 !important;
-  padding: 0 !important;    /* ← ajoute padding 0 */
+.inner {{
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  border: 1.5px dashed rgba(0,0,0,0.1);
+  transition: border-color 0.2s;
+}}
+.inner:hover {{
+  border-color: var(--accent);
+  border-style: solid;
 }}
 
-/* Supprime les backgrounds parasites des colonnes Streamlit */
-[data-testid="stColumn"] {{
-  background: var(--card) !important;
-  padding: 0 !important;
+/* Recents section */
+.recents-wrap {{
+  background: var(--card);
+  padding: 16px 20px 20px;
+  border-bottom: var(--bdr);
+  margin: 10px
 }}
-[data-testid="stHorizontalBlock"] {{
-  background: var(--card) !important;
-  gap: 8px !important;
-  padding: 0 !important;
+.recents-header {{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}}
+.recents-label {{
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  font-weight: 500;
+  color: var(--sub);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  opacity: 0.8;
+}}
+.recents-clear {{
+  font-family: var(--font);
+  font-size: 0.72rem;
+  color: var(--sub);
+  cursor: pointer;
+  opacity: 0.6;
+  text-decoration: none;
+}}
+.recents-clear:hover {{ opacity: 1; }}
+.recent-item {{
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(0,0,0,0.04);
+  text-decoration: none;
+  cursor: pointer;
+}}
+.recent-item:last-child {{ border-bottom: none; }}
+.recent-thumb {{
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  object-fit: contain;
+  background: var(--bg);
+  border: var(--bdr);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}}
+.recent-thumb img {{
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  object-fit: contain;
+}}
+.recent-info {{ flex: 1; min-width: 0; }}
+.recent-name {{
+  font-family: var(--font);
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.01em;
+}}
+.recent-brand {{
+  font-family: var(--font);
+  font-size: 0.7rem;
+  color: var(--sub);
+  margin-top: 2px;
+}}
+.recent-score {{
+  font-family: var(--font);
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 20px;
+  flex-shrink: 0;
+  letter-spacing: -0.02em;
+}}
+.rs-g {{ background: #F0FDF4; color: #16A34A; }}
+.rs-o {{ background: #FFFBEB; color: #D97706; }}
+.rs-r {{ background: #FFF1F2; color: #DC2626; }}
+
+.recents-empty {{
+  font-family: var(--font);
+  font-size: 0.8rem;
+  color: var(--sub);
+  text-align: center;
+  padding: 20px 0 10px;
+  opacity: 0.6;
 }}
 
+/* Tip banner */
+.search-tip {{
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 11px 14px;
+  background: var(--bg);
+  border-radius: var(--r-sm);
+  border: var(--bdr);
+  margin-top: 14px;
+}}
+.search-tip-icon {{
+  font-size: 0.85rem;
+  flex-shrink: 0;
+  margin-top: 1px;
+  opacity: 0.6;
+}}
+.search-tip-text {{
+  font-family: var(--font);
+  font-size: 0.72rem;
+  color: var(--sub);
+  line-height: 1.6;
+}}
 
-/* ── HERO ── */
+.bc-input {{
+  margin-bottom: 0;
+}}
+
+/* ── HERO (product) ── */
 .hero {{
   background: var(--card);
-  padding: 20px 20px 16px;
+  padding: 15px 20px 16px;
   border-bottom: var(--bdr);
 }}
 .hero-top {{
@@ -503,17 +672,11 @@ div[data-testid="stVerticalBlock"] {{
 .n4c {{ background: #EF4444; }}
 
 /* ── SECTIONS ── */
-/* Collapse any Streamlit-injected gap between scanner and first product block */
 .element-container:has(.scanner-wrap) + .element-container {{
   margin-top: 0 !important;
 }}
 .element-container:has(.scanner-wrap) + .element-container .hero {{
   margin-top: 0 !important;
-}}
-.bc-input{{
-margin-bottom: 10px;
-  border-bottom: var(--bdr);
-
 }}
 
 .section {{
@@ -861,6 +1024,9 @@ margin-bottom: 10px;
   text-decoration: none !important;
   color: var(--text) !important;
 }}
+.history {{
+  margin-top: 50px;
+}}
 .hist-item:active {{ background: var(--bar-bg); }}
 .hist-img {{
   width: 54px;
@@ -949,16 +1115,9 @@ margin-bottom: 10px;
   box-shadow: var(--sh-xs);
   letter-spacing: -0.01em;
 }}
-.scanner-wrap {{
-  background: var(--card);
-  padding: 30px 16px 14px;
-  margin-top: 0;
-  border-bottom: none;
-}}
 
 #alternativesSection {{
-    padding-bottom: 80px;
-    margin-bottom: 80px;
+  padding-bottom: 80px;
 }}
 
 .content-end {{
@@ -966,8 +1125,8 @@ margin-bottom: 10px;
 }}
 
 .ps-footer {{
-    background: var(--card);
-  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+  background: var(--card);
+  padding: 0 16px calc(10px + env(safe-area-inset-bottom));
   border-top: var(--bdr);
   display: flex;
   align-items: center;
@@ -978,6 +1137,7 @@ margin-bottom: 10px;
   left: 0;
   z-index: 100;
 }}
+
 .ps-footer-btn {{
   display: flex;
   flex-direction: column;
@@ -995,6 +1155,7 @@ margin-bottom: 10px;
   text-transform: uppercase;
   color: var(--sub);
   transition: background 0.15s;
+  text-decoration: none;
 }}
 .ps-footer-btn:hover {{
   background: rgba(0,0,0,0.05);
@@ -1004,12 +1165,12 @@ margin-bottom: 10px;
   background: var(--glow);
 }}
 .ps-footer-btn svg {{
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
 }}
 
 #product-presentation {{
- padding-top: 30px
+  padding-top: 30px;
 }}
 
 /* ── MOBILE RESPONSIVE ── */
@@ -1018,7 +1179,7 @@ margin-bottom: 10px;
   .hero {{ padding: 16px 16px 14px; }}
   .section {{ padding: 16px 16px; }}
   .ps-footer {{ padding: 16px 16px; }}
-  .search-wrap {{ padding: 12px 14px 10px; }}
+  .search-wrap {{ padding: 16px 16px 14px; }}
   .nf-name {{ width: 95px !important; font-size: 0.74rem !important; }}
   .score-num {{ font-size: 1.35rem !important; }}
   .hero-name {{ font-size: 0.96rem !important; }}
@@ -1026,6 +1187,7 @@ margin-bottom: 10px;
   .hero-img, .hero-img-ph {{ width: 66px !important; height: 66px !important; }}
   .factor-icon {{ width: 32px !important; height: 32px !important; }}
   .ps-header {{ padding: 12px 16px; }}
+  .search-hero {{ padding: 24px 20px 22px; }}
 }}
 
 @media (max-width: 360px) {{
@@ -1035,6 +1197,23 @@ margin-bottom: 10px;
   .factor-name {{ font-size: 0.82rem !important; }}
 }}
 
+div[data-testid="stVerticalBlock"] {{
+  gap: 0 !important;
+  background: var(--card) !important;
+}}
+.element-container {{
+  margin: 0 !important;
+  padding: 0 !important;
+}}
+[data-testid="stColumn"] {{
+  background: var(--card) !important;
+  padding: 0 !important;
+}}
+[data-testid="stHorizontalBlock"] {{
+  background: var(--card) !important;
+  gap: 8px !important;
+  padding: 0 !important;
+}}
 </style>
 <script>
 (function() {{
@@ -1124,9 +1303,10 @@ def compute_fsa_score(p):
         pos_factors.append(("🧂", "Sale", f"Senza sale: {salt:.2f}g/100g", "dot-g"))
     elif a_sod <= 1:
         pos_factors.append(("🧂", "Sale", f"Basso: {salt:.2f}g/100g", "dot-g"))
-    if a_sat <= 1: pos_factors.append(("💧", "Grassi saturi", f"Bassi: {sat:.1f}g/100g", "dot-g"))
-    if nova and nova <= 2: pos_factors.append(
-        ("🌿", "Alimento non trasformato", f"NOVA {nova} — bassa trasformazione", "dot-g"))
+    if a_sat <= 1:
+        pos_factors.append(("💧", "Grassi saturi", f"Bassi: {sat:.1f}g/100g", "dot-g"))
+    if nova and nova <= 2:
+        pos_factors.append(("🌿", "Alimento non trasformato", f"NOVA {nova} — bassa trasformazione", "dot-g"))
     if a_sug >= 5:
         neg_factors.append(("🍬", "Zuccheri", f"Elevati: {sug:.1f}g/100g", "dot-r"))
     elif a_sug >= 2:
@@ -1139,7 +1319,8 @@ def compute_fsa_score(p):
         neg_factors.append(("🧂", "Sale", f"Elevato: {salt:.2f}g/100g", "dot-r"))
     elif a_sod >= 3:
         neg_factors.append(("🧂", "Sale", f"Moderato: {salt:.2f}g/100g", "dot-o"))
-    if kcal and kcal > 450: neg_factors.append(("🔥", "Energia", f"{int(kcal)} kcal/100g", "dot-o"))
+    if kcal and kcal > 450:
+        neg_factors.append(("🔥", "Energia", f"{int(kcal)} kcal/100g", "dot-o"))
     if nova and nova == 4:
         neg_factors.append(("🏭", "Ultra-trasformato", "NOVA 4 — alto grado di trasformazione", "dot-r"))
     elif nova and nova == 3:
@@ -1150,6 +1331,7 @@ def compute_fsa_score(p):
         "sat": sat, "salt": salt, "kcal": kcal, "fvn": fvn,
     }
 
+
 # ── FSA CALCULATORS ────────────────────────────────────────────────
 def a_en_calculator(kj: int) -> int:
     return min(10, int(kj / 335))
@@ -1159,7 +1341,7 @@ def a_sug_calculator(sug: int) -> int:
     return min(10, int(sug / 4.5))
 
 
-def a_sat_calculator(sat: int ) -> int:
+def a_sat_calculator(sat: int) -> int:
     return max(0, min(10, int(sat) - 1))
 
 
@@ -1243,6 +1425,7 @@ def _fetch_off_single(barcode: str, base: str) -> dict | None:
         pass
     return None
 
+
 def fetch_off(barcode: str, placeholder) -> tuple[dict | None, str | None, str | None]:
     for db_id, db_name, base in DBS:
         placeholder.markdown(f'<div class="src-badge">→ {db_name}</div>', unsafe_allow_html=True)
@@ -1291,6 +1474,8 @@ def normalize_query_value(v):
 
 # ── SUGGESTIONS ──────────────────────────────────────────────
 _SEARCH_FIELDS = "product_name,brands,nutriscore_grade,nova_group,nutriments,additives_tags,categories_tags,code,image_url"
+
+
 @st.cache_data(ttl=604800, show_spinner=False)
 def get_suggestions(cats: tuple, current_score, current_ns: str = ""):
     candidates = [c for c in reversed(cats) if c.startswith("en:") and len(c) > 5]
@@ -1312,13 +1497,16 @@ def get_suggestions(cats: tuple, current_score, current_ns: str = ""):
                 timeout=(4, 12),
             )
             if r.status_code != 200:
-                last_err = ("http_err", str(r.status_code)); continue
+                last_err = ("http_err", str(r.status_code))
+                continue
             prods = r.json().get("products", [])
             if not prods:
-                last_err = ("empty", cat); continue
+                last_err = ("empty", cat)
+                continue
             results = []
             for prod in prods:
-                if not prod.get("product_name"): continue
+                if not prod.get("product_name"):
+                    continue
                 s, _, _, _ = compute_fsa_score(prod)
                 if s > current_score + 3:
                     results.append((s, prod))
@@ -1327,7 +1515,8 @@ def get_suggestions(cats: tuple, current_score, current_ns: str = ""):
                 return results[:4]
             last_err = ("none_better", f"score={current_score}")
         except Exception as ex:
-            last_err = ("exception", str(ex)[:80]); continue
+            last_err = ("exception", str(ex)[:80])
+            continue
 
     if current_ns in "cdez" or current_score < 50:
         broad_cats = candidates[-3:]
@@ -1344,12 +1533,15 @@ def get_suggestions(cats: tuple, current_score, current_ns: str = ""):
                     },
                     timeout=(4, 12),
                 )
-                if r.status_code != 200: continue
+                if r.status_code != 200:
+                    continue
                 prods = r.json().get("products", [])
-                if not prods: continue
+                if not prods:
+                    continue
                 results = []
                 for prod in prods:
-                    if not prod.get("product_name"): continue
+                    if not prod.get("product_name"):
+                        continue
                     s, _, _, _ = compute_fsa_score(prod)
                     if s > current_score + 1:
                         results.append((s, prod))
@@ -1357,12 +1549,15 @@ def get_suggestions(cats: tuple, current_score, current_ns: str = ""):
                 if results:
                     return results[:4]
             except Exception as ex:
-                last_err = ("exception", str(ex)[:80]); continue
+                last_err = ("exception", str(ex)[:80])
+                continue
 
     return last_err
 
+
 # ── HELPERS ──────────────────────────────────────────────────
-def e(s): return str(s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+def e(s):
+    return str(s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def nutriscore_html(ns):
@@ -1382,17 +1577,19 @@ def nova_html(nova):
 
 def macro_svg(fat, carbs, prot):
     tot = fat * 9 + carbs * 4 + prot * 4
-    if tot == 0: return ""
-    pf = fat * 9 / tot * 100;
-    pc = carbs * 4 / tot * 100;
+    if tot == 0:
+        return ""
+    pf = fat * 9 / tot * 100
+    pc = carbs * 4 / tot * 100
     pp = prot * 4 / tot * 100
 
     def sl(s, en, col):
-        if en - s >= 100: en -= 0.01
-        a = math.radians(s / 100 * 360 - 90);
+        if en - s >= 100:
+            en -= 0.01
+        a = math.radians(s / 100 * 360 - 90)
         b = math.radians(en / 100 * 360 - 90)
-        r = 52;
-        cx = 60;
+        r = 52
+        cx = 60
         cy = 60
         x1, y1 = cx + r * math.cos(a), cy + r * math.sin(a)
         x2, y2 = cx + r * math.cos(b), cy + r * math.sin(b)
@@ -1435,14 +1632,18 @@ def factor_row(icon, name, desc, dot):
 
 
 def bar_color(v, low, high):
-    if v is None: return "var(--bar-bg)"
+    if v is None:
+        return "var(--bar-bg)"
     return "#16A34A" if v <= low else "#D97706" if v <= high else "#DC2626"
 
 
 def score_color(s):
-    if s is None: return "#999"
-    if s >= 60: return "#16A34A"
-    if s >= 45: return "#D97706"
+    if s is None:
+        return "#999"
+    if s >= 60:
+        return "#16A34A"
+    if s >= 45:
+        return "#D97706"
     return "#DC2626"
 
 
@@ -1466,6 +1667,96 @@ def scanner_html(pal):
     )
 
 
+# ── RENDER SEARCH PAGE ────────────────────────────────────────
+def render_search_page(barcode, pal):
+    """Renders the redesigned search tab with hero, input, scanner, and recents."""
+
+    # Hero
+    st.markdown(
+        f'<div class="search-hero">'
+        f'<div class="search-hero-icon">🔍</div>'
+        f'<div class="search-hero-title">Analizza un prodotto</div>'
+        f'<div class="search-hero-sub">Scansiona il codice a barre o inserisci il codice EAN per ottenere il punteggio nutrizionale.</div>'
+        f'</div>',
+        unsafe_allow_html=True
+    )
+
+    # Input
+    st.markdown('<div>', unsafe_allow_html=True)
+    ci, cb = st.columns([4, 1])
+    with ci:
+        st.markdown('<div class="bc-input">', unsafe_allow_html=True)
+        bc_input = st.text_input("bc", value=barcode,
+                                 placeholder="EAN-13 / UPC",
+                                 label_visibility="collapsed")
+        st.markdown('</div>', unsafe_allow_html=True)
+    with cb:
+        clicked = st.button("Cerca", key="btn_search")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    if clicked and bc_input.strip() and bc_input.strip() != barcode:
+        st.query_params.clear()
+        st.query_params.update({"barcode": bc_input.strip()})
+        st.rerun()
+
+    # Scanner
+    st.markdown(
+        f'<div class="scanner-wrap">'
+        f'<div class="scanner-field-label">Scansione fotocamera</div>'
+        f'<div class="inner">',
+        unsafe_allow_html=True
+    )
+    st.markdown(scanner_html(pal), unsafe_allow_html=True)
+    st.markdown('</div></div>', unsafe_allow_html=True)
+
+    # Recents
+    history_products = localStorage.getItem("products") or []
+    recent_html = (
+        f'<div class="recents-wrap">'
+        f'<div class="recents-header">'
+        f'<div class="recents-label">Recenti</div>'
+        f'</div>'
+    )
+
+    if not history_products:
+        recent_html += '<div class="recents-empty">Nessun prodotto ancora analizzato.</div>'
+    else:
+        for p in history_products[:4]:
+            code = p.get("code", "")
+            name = e(p.get("name") or p.get("product_name") or "Prodotto")
+            brand = e(p.get("brand") or p.get("brands", ""))
+            img = p.get("img_url") or ""
+            added = p.get("addedDate", "")
+
+            # Try to show score pill if cached — just show date otherwise
+            if img:
+                thumb_html = f'<div class="recent-thumb"><img src="{img}" onerror="this.style.display=\'none\'" /></div>'
+            else:
+                thumb_html = '<div class="recent-thumb">📦</div>'
+
+            recent_html += (
+                f'<a class="recent-item" href="?barcode={code}" target="_top">'
+                f'{thumb_html}'
+                f'<div class="recent-info">'
+                f'<div class="recent-name">{name}</div>'
+                f'<div class="recent-brand">{brand}{(" · " + added) if added else ""}</div>'
+                f'</div>'
+                f'</a>'
+            )
+
+    # Tip
+    recent_html += (
+        f'<div class="search-tip">'
+        f'<div class="search-tip-icon">ℹ️</div>'
+        f'<div class="search-tip-text">Il punteggio è calcolato con il modello FSA Nutrient Profiling — più alto è meglio. '
+        f'Basato su Open Food Facts.</div>'
+        f'</div>'
+        f'</div>'
+    )
+
+    st.markdown(recent_html, unsafe_allow_html=True)
+
+
 # ── RENDER FOOD ───────────────────────────────────────────────
 def render_food(p, score, pos, neg, details, pal):
     n = p.get("nutriments", {})
@@ -1474,7 +1765,7 @@ def render_food(p, score, pos, neg, details, pal):
     img = p.get("image_url") or p.get("image_front_url") or ""
     ns = (p.get("nutriscore_grade") or "").lower()
     nova = p.get("nova_group")
-    label = pal['label'];
+    label = pal['label']
     medal = pal['medal']
     sc_fg = pal['score_fg']
 
@@ -1548,13 +1839,13 @@ def render_food(p, score, pos, neg, details, pal):
         f'<div class="section"><div class="section-hd"><div class="section-title">Ingredienti</div></div>{ih}</div>',
         unsafe_allow_html=True)
 
-    fat = n.get("fat_100g");
+    fat = n.get("fat_100g")
     sat = n.get("saturated-fat_100g")
-    carbs = n.get("carbohydrates_100g");
+    carbs = n.get("carbohydrates_100g")
     sugar = n.get("sugars_100g")
-    fiber = n.get("fiber_100g");
+    fiber = n.get("fiber_100g")
     prot = n.get("proteins_100g")
-    salt = n.get("salt_100g");
+    salt = n.get("salt_100g")
     kcal_v = details.get("kcal")
 
     nf = (nf_bar("Grassi", fat, 30, "g", bar_color(fat, 3, 17.5)) +
@@ -1634,7 +1925,7 @@ def render_alternatives(suggestions, pal):
                  f'<div class="alt-name">{name}</div>'
                  f'<div class="alt-brand">{brand}{(" · " + ns_txt) if ns_txt else ""}</div>'
                  f'</div>'
-                 f'<a class="alt-link" href="?barcode={code}" target="_top"">Analizza →</a>'
+                 f'<a class="alt-link" href="?barcode={code}" target="_top">Analizza →</a>'
                  f'</div>')
     html += '</div>'
     st.markdown(html, unsafe_allow_html=True)
@@ -1667,28 +1958,26 @@ def render_generic(p, source, pal):
 
 
 # ── HISTORY RENDER ───────────────────────────────────────────
-import streamlit as st
-
 def render_history():
     history_products = localStorage.getItem("products") or []
 
     if len(history_products) == 0:
-        st.warning("There is no product in the history")
+        st.warning("Nessun prodotto nella cronologia")
         return
 
     rows = []
 
     for p in history_products:
-
         code = p.get("code", "")
-        name = p.get("name") or p.get("product_name") or "Product"
+        added_date = p.get("addedDate")
+        name = p.get("name") or p.get("product_name") or "Prodotto"
         brand = p.get("brand") or p.get("brands", "")
         img = p.get("img_url") or p.get("image_url") or p.get("image_front_url") or ""
 
         img_html = (
             f'<img class="hist-img" src="{img}" />'
             if img else
-            '<div class="hist-img placeholder"></div>'
+            '<div class="hist-img-ph">📦</div>'
         )
 
         rows.append(f"""
@@ -1697,6 +1986,7 @@ def render_history():
                 <div class="hist-info">
                     <div class="hist-name">{name}</div>
                     <div class="hist-brand">{brand}</div>
+                    <div class="hist-brand">Consultato il {added_date}</div>
                 </div>
             </a>
         """)
@@ -1714,26 +2004,34 @@ def main():
     if not barcode and tab == "":
         tab = "search"
 
-    # ── 1. CSS par défaut en premier (palette neutre) ──
+    # ── 1. Default CSS
     pal = get_palette(45)
     st.markdown(render_css(pal), unsafe_allow_html=True)
 
-    # ── 2. Header fixe ──
+    # ── 2. Fixed header
     st.markdown(
         f'<div class="ps-header">'
         f'<div style="display:flex;align-items:center;gap:9px;">'
-        f'<div class="ps-logo">Product<span>Scan</span></div>'
+        f'<div class="ps-logo">'
+        f'<div class="ps-logo-dot"></div>'
+        f'Product<span>Scan</span>'
+        f'</div>'
         f'</div>'
         f'<div class="ps-tag">Nutri</div>'
         f'</div>', unsafe_allow_html=True)
 
-    # ── 3. Fetch produit (si barcode dans URL) ──
-    product = None; did = None; source = None
-    score = 45; pos = []; neg = []; details = {}
+    # ── 3. Fetch product (if barcode in URL)
+    product = None
+    did = None
+    source = None
+    score = 45
+    pos = []
+    neg = []
+    details = {}
 
     if barcode:
         pre_ph = st.empty()
-        with st.spinner(""):
+        with st.spinner("Ricerca prodotto"):
             product, did, source = search(barcode, pre_ph)
         pre_ph.empty()
         if product:
@@ -1745,34 +2043,36 @@ def main():
             st.markdown(render_css(pal), unsafe_allow_html=True)
             add_to_history(product)
 
-    # ── 5. tab content ──
-
+    # ── 4. Tab content
     if tab == "search":
-        st.markdown('<div class="search-wrap">', unsafe_allow_html=True)
-        ci, cb = st.columns([4, 1])
-        with ci:
-            st.markdown('<div class="bc-input">', unsafe_allow_html=True)
-            bc_input = st.text_input("bc", value=barcode,
-                                     placeholder="Codice EAN-13 / UPC",
-                                     label_visibility="collapsed")
-            st.markdown('</div', unsafe_allow_html=True)
-        with cb:
-            clicked = st.button("Search", key="btn_search")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        if clicked and bc_input.strip() and bc_input.strip() != barcode:
-            st.query_params.clear()
-            st.query_params.update({"barcode": bc_input.strip()})
-            st.rerun()
-
-        st.markdown('<div class="scanner-wrap">', unsafe_allow_html=True)
-        st.markdown(scanner_html(pal), unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+        render_search_page(barcode, pal)
 
     if tab == "history":
+        st.markdown('<div class="history">', unsafe_allow_html=True)
         render_history()
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    # ── 6. product display ──
+    # ── 5. Footer nav
+    st.markdown(
+        f'<div class="ps-footer">'
+
+        f'<a href="?tab=search" target="_top" '
+        f'class="ps-footer-btn {"active" if tab == "search" else ""}">'
+        f'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'
+        f'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>'
+        f'<span>Cerca</span></a>'
+
+        f'<a href="?tab=history" target="_top" '
+        f'class="ps-footer-btn {"active" if tab == "history" else ""}">'
+        f'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'
+        f'<path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/>'
+        f'<rect x="9" y="3" width="6" height="4" rx="1"/></svg>'
+        f'<span>Cronologia</span></a>'
+
+        f'</div>',
+        unsafe_allow_html=True)
+
+    # ── 6. Product display
     if product:
         if did == "food":
             render_food(product, score, pos, neg, details, pal)
@@ -1798,28 +2098,8 @@ def main():
             f'<div class="ps-err">⚠ Prodotto non trovato: <strong>{e(barcode)}</strong></div>',
             unsafe_allow_html=True)
 
-    if msg is None:
+    if msg is None or tab == "history" or tab == "search":
         st.markdown('<div class="content-end"></div>', unsafe_allow_html=True)
-
-    # ── 7. buttons nav ──
-    st.markdown(
-        f'<div class="ps-footer">'
-
-        f'<a href="?tab=search" target="_top" '
-        f'class="ps-footer-btn {"active" if tab == "search" else ""}">'
-        f'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'
-        f'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>'
-        f'<span>Search</span></a>'
-
-        f'<a href="?tab=history" target="_top" '
-        f'class="ps-footer-btn {"active" if tab == "history" else ""}">'
-        f'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'
-        f'<path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/>'
-        f'<rect x="9" y="3" width="6" height="4" rx="1"/></svg>'
-        f'<span>History</span></a>'
-
-        f'</div>',
-        unsafe_allow_html=True)
 
 
 if __name__ == "__main__":
