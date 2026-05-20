@@ -4,10 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
     <script src="zxing-browser.min.js"></script>
 
     <script>
-        // Read palette colors from URL params, fall back to neutral amber defaults
         var p = new URLSearchParams(location.search);
         var accent = '#' + (p.get('accent') || 'D97706');
         var card = '#' + (p.get('card') || 'F7F0E4');
@@ -17,8 +17,6 @@
         var text_col = '#' + (p.get('text_col') || '1A1200');
         var glow = (p.get('glow') || 'rgba(217,119,6,0.16)');
 
-
-        // Inject CSS variables before the page renders to avoid flash
         document.write(
             '<style>:root{' +
             '--accent:' + accent + ';' +
@@ -84,7 +82,6 @@
             transform: scale(.99);
         }
 
-        /* Label acting as button for the file input */
         #upload-label {
             display: flex;
             align-items: center;
@@ -115,7 +112,6 @@
             transform: scale(.99);
         }
 
-        /* Real file input placed off-screen (iOS-safe — not display:none) */
         #file-input {
             position: absolute;
             left: -9999px;
@@ -124,38 +120,112 @@
             opacity: 0;
         }
 
-        #stop {
-            width: 100%;
-            padding: 14px;
-            background: transparent;
-            color: var(--accent);
-            border: 1.5px solid var(--accent);
-            font-size: 0.9rem;
-            font-weight: 600;
-            cursor: pointer;
-            border-radius: 10px;
+        /* ── Camera modal overlay ── */
+        #camera-modal {
             display: none;
-            letter-spacing: -0.01em;
-            margin-top: 8px;
+            position: fixed;
+            inset: 0;
+            background: rgba(20, 18, 14, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            z-index: 99999;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 24px 16px;
+        }
+
+        #camera-modal.open {
+            display: flex;
+            padding: 24px 16px;
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
         }
 
         #vp {
             width: 100%;
-            border-radius: 10px;
+            max-width: 440px;
+            border-radius: 18px;
             overflow: hidden;
             background: #000;
-            margin-top: 10px;
+            min-height: 260px;
+            padding: 0;
+            box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06),
+            0 24px 60px rgba(0, 0, 0, 0.5);
         }
 
         #vp video {
             width: 100% !important;
+            height: 100% !important;
+            padding: 0;
             display: block;
+            object-fit: cover;
         }
 
         #vp canvas.drawingBuffer {
             display: none !important;
         }
 
+        #modal-msg {
+            font-size: 0.72rem;
+            color: rgba(255, 255, 255, 0.45);
+            font-family: 'DM Mono', monospace;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            margin-top: 16px;
+            text-align: center;
+            min-height: 1.4em;
+            transition: color 0.2s;
+        }
+
+        #progress {
+            width: 100%;
+            max-width: 440px;
+            height: 2px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 99px;
+            margin-top: 14px;
+            display: none;
+            overflow: hidden;
+        }
+
+        #progress > div {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 60%, white));
+            border-radius: 99px;
+            width: 0%;
+            transition: width 0.25s ease;
+            box-shadow: 0 0 8px var(--accent);
+        }
+
+        #stop {
+            margin-top: 20px;
+            padding: 11px 36px;
+            background: rgba(255, 255, 255, 0.05);
+            color: rgba(255, 255, 255, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            font-size: 0.85rem;
+            font-weight: 600;
+            font-family: 'DM Sans', sans-serif;
+            cursor: pointer;
+            border-radius: 12px;
+            letter-spacing: 0.01em;
+            transition: background 0.2s, border-color 0.2s, transform 0.15s;
+            backdrop-filter: blur(6px);
+        }
+
+        #stop:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.7);
+            transform: translateY(-1px);
+        }
+
+        #stop:active {
+            transform: translateY(0px);
+            background: rgba(255, 255, 255, 0.07);
+        }
+
+        /* ── Result (shown in main wrap, below buttons) ── */
         #msg {
             font-size: 0.66rem;
             color: var(--sub);
@@ -165,23 +235,6 @@
             letter-spacing: 0.03em;
             opacity: .75;
             min-height: 1.4em;
-        }
-
-        #progress {
-            height: 3px;
-            background: rgba(0, 0, 0, 0.07);
-            border-radius: 2px;
-            margin: 6px 0 0;
-            display: none;
-            overflow: hidden;
-        }
-
-        #progress > div {
-            height: 100%;
-            background: var(--accent);
-            border-radius: 2px;
-            width: 0%;
-            transition: width 0.2s;
         }
 
         #found {
@@ -223,16 +276,9 @@
 <div id="wrap">
     <div class="btn-row">
         <button id="btn" onclick="go()">📷 Scan camera</button>
-        <label id="upload-label" for="file-input">🖼️ Carica foto</label>
+        <label id="upload-label" for="file-input">Carica foto</label>
     </div>
-    <!-- File input off-screen: the <label for="file-input"> opens it natively,
-         even on iOS Safari, without a JS .click() call -->
     <input type="file" id="file-input" accept="image/*" onchange="scanFile(event)">
-    <button id="stop" onclick="halt()">⏹ Ferma</button>
-    <div id="vp"></div>
-    <div id="progress">
-        <div></div>
-    </div>
     <div id="msg">Inquadra il barcode o carica una foto</div>
     <div id="found">
         <div id="found-code"></div>
@@ -240,14 +286,28 @@
     </div>
 </div>
 
+<!-- Camera modal -->
+<div id="camera-modal">
+    <div id="vp"></div>
+    <div id="progress"><div></div></div>
+    <div id="modal-msg">Inizializzazione fotocamera...</div>
+    <button id="stop" onclick="halt()">✕ Chiudi</button>
+</div>
+
 <script>
-    var codeReader = new ZXing.BrowserMultiFormatReader();
     var running = false, done = false;
-    // Consensus: require 2 identical consecutive reads before confirming
     var consensusBuf = [];
     var CONSENSUS_N = 2;
 
-    /* ── Utils ── */
+    // error  = string "err" ou "warning"
+    function displayErrorConsole(error, type) {
+        if (type === "warning") {
+            console.warn(error);
+        } else {
+            console.error(error);
+        }
+    }
+
     function resize() {
         var h = document.getElementById('wrap').scrollHeight;
         window.parent.postMessage({type: 'streamlit:setFrameHeight', height: h + 4}, '*');
@@ -263,9 +323,10 @@
     });
 
     function setProgress(pct) {
-        var p = document.getElementById('progress');
-        p.style.display = (pct > 0 && pct < 100) ? 'block' : 'none';
-        p.firstChild.style.width = pct + '%';
+        var pr = document.getElementById('progress');
+        if (!pr || !pr.firstChild) return;
+        pr.style.display = (pct > 0 && pct < 100) ? 'block' : 'none';
+        pr.firstChild.style.width = pct + '%';
     }
 
     function isValidBarcode(code) {
@@ -279,7 +340,7 @@
         done = true;
         halt();
         setProgress(100);
-        document.getElementById('msg').textContent = '✓ Rilevato';
+        document.getElementById('msg').textContent = '✓ Rilevato: ' + code;
         document.getElementById('found-code').textContent = code;
         var target = window.top.location.pathname + '?barcode=' + encodeURIComponent(code);
         document.getElementById('found-btn').href = target;
@@ -290,76 +351,83 @@
         }, 250);
     }
 
-    /* ── Zxing (live camera) ── */
     function go() {
-        constraints = {video: {facingMode: "environment", width: {ideal: 1280}, height: {ideal: 720}}}
         done = false;
         consensusBuf = [];
         setProgress(0);
-        document.getElementById('btn').style.display = 'none';
-        document.getElementById('stop').style.display = 'block';
         document.getElementById('found').style.display = 'none';
-        document.getElementById('msg').textContent = 'Inizializzazione fotocamera...';
-        resize();
-        const vp = window.document.getElementById("vp");
+        document.getElementById('modal-msg').textContent = 'Inizializzazione fotocamera...';
 
-        codeReader.decodeFromConstraints(constraints, vp, {
-            function(r, err) {
-                if (err) return;
-                if (done) return;
-                var code = r.getText();
-                if (!isValidBarcode(code)) return;
-                consensusBuf.push(code);
-                if (consensusBuf.length > CONSENSUS_N) consensusBuf.shift();
-                setProgress(consensusBuf.length / CONSENSUS_N * 100);
-                if (consensusBuf.length >= CONSENSUS_N && consensusBuf.every(function (c) {
-                    return c === consensusBuf[0];
-                })) {
-                    confirmCode(consensusBuf[0]);
+        document.getElementById('camera-modal').classList.add('open');
+
+        Quagga.init({
+            inputStream: {
+                type: "LiveStream", target: document.getElementById('vp'),
+                constraints: {
+                    facingMode: "environment",
+                    width: {min: 370, ideal: 1280},
+                    height: {ideal: 720},
+                    aspectRatio: 16 / 9
                 }
+            },
+            decoder: {readers: ["ean_reader", "ean_8_reader", "upc_reader", "upc_e_reader", "code_128_reader"]},
+            locate: true, numOfWorkers: 2, frequency: 10
+        }, function (err) {
+            if (err) {
+                document.getElementById('modal-msg').textContent = 'Errore: ' + err;
+                displayErrorConsole(err, "err");
+                halt();
+                return;
             }
-        }).catch(function (err) {
-            document.getElementById("msg").textContent = "Errore: " + err;
-            halt();
+            Quagga.start();
+            running = true;
+            document.getElementById('modal-msg').textContent = 'Inquadra il barcode...';
         });
 
-        running = true;
-        document.getElementById("msg").textContent = "Inquadra il barcode.."
-        setTimeout(resize, 300)
+        Quagga.onDetected(function (r) {
+            if (done) return;
+            var code = r.codeResult.code;
+            if (!isValidBarcode(code)) return;
+            consensusBuf.push(code);
+            if (consensusBuf.length > CONSENSUS_N) consensusBuf.shift();
+            setProgress(consensusBuf.length / CONSENSUS_N * 100);
+            if (consensusBuf.length >= CONSENSUS_N && consensusBuf.every(function (c) {
+                return c === consensusBuf[0];
+            })) {
+                confirmCode(consensusBuf[0]);
+            }
+        });
     }
 
     function halt() {
         if (running) {
             try {
-                codeReader.reset();
+                Quagga.stop();
             } catch (e) {
+                displayErrorConsole(e, "err");
             }
             running = false;
         }
-        document.getElementById('btn').style.display = 'block';
-        document.getElementById('stop').style.display = 'none';
         document.getElementById('vp').innerHTML = '';
+        document.getElementById('camera-modal').classList.remove('open');
         setProgress(0);
         resize();
     }
 
     /* ── Scan from image file ── */
-
-    // Load a File → canvas (fixes EXIF orientation, caps at maxDim px)
     async function loadFileToCanvas(file, maxDim) {
         var bmp;
         try {
             bmp = await createImageBitmap(file, {imageOrientation: 'from-image'});
         } catch (e1) {
+            displayErrorConsole(e1, "warning");
             try {
                 bmp = await createImageBitmap(file);
             } catch (e2) {
-                // Last-resort fallback: data URL → Image (iOS HEIC, old Safari)
+                displayErrorConsole(e2, "warning");
                 var dataUrl = await new Promise(function (res, rej) {
                     var fr = new FileReader();
-                    fr.onload = function () {
-                        res(fr.result);
-                    };
+                    fr.onload = function () { res(fr.result); };
                     fr.onerror = rej;
                     fr.readAsDataURL(file);
                 });
@@ -384,14 +452,10 @@
         canvas.width = cw;
         canvas.height = ch;
         canvas.getContext('2d').drawImage(bmp, 0, 0, cw, ch);
-        if (bmp.close) try {
-            bmp.close();
-        } catch (e) {
-        }
+        if (bmp.close) try { bmp.close(); } catch (e) {}
         return canvas;
     }
 
-    // Try ZXing on a canvas at a given rotation (0/90/180/270)
     async function zxingDecodeRotated(srcCanvas, rotation) {
         var rotCanvas = srcCanvas;
         if (rotation !== 0) {
@@ -408,16 +472,27 @@
         }
         var dataUrl = rotCanvas.toDataURL('image/png');
         var img = new Image();
-        await new Promise(function (res, rej) {
-            img.onload = res;
-            img.onerror = rej;
-            img.src = dataUrl;
-            setTimeout(function () {
-                rej(new Error('img timeout'));
-            }, 5000);
-        });
-        var reader = new window.ZXingBrowser.BrowserMultiFormatReader();
-        return await reader.decodeFromImageElement(img);
+        try {
+            await new Promise(function (res, rej) {
+                img.onload = res;
+                img.onerror = rej;
+                img.src = dataUrl;
+                setTimeout(function () {
+                    rej(new Error('img timeout'));
+                }, 5000);
+            });
+        } catch (e) {
+            displayErrorConsole(e, "err");
+            throw e;
+        }
+
+        try {
+            var reader = new window.ZXingBrowser.BrowserMultiFormatReader();
+            return await reader.decodeFromImageElement(img);
+        } catch (e) {
+            displayErrorConsole(e, "warning");
+            throw e;
+        }
     }
 
     async function scanFile(ev) {
@@ -439,12 +514,12 @@
             msg.textContent = 'Immagine ' + canvas.width + '×' + canvas.height + ', analisi barcode...';
         } catch (err) {
             msg.textContent = 'Errore caricamento foto: ' + (err.message || err);
+            displayErrorConsole(err, "err");
             ev.target.value = '';
             resize();
             return;
         }
 
-        // 1) Native BarcodeDetector (Chrome/Edge/Android) — fastest path
         if ('BarcodeDetector' in window) {
             try {
                 var detector = new window.BarcodeDetector({
@@ -456,25 +531,29 @@
                     return;
                 }
             } catch (e) {
+                displayErrorConsole(e, "err");
             }
         }
 
-        // 2) ZXing across 4 rotations (universal fallback, works on iOS Safari)
-        // Wait up to 5s for ZXing to finish loading (CDN may be slow)
         if (!window.ZXingBrowser) {
             msg.textContent = 'Loading ZXing...';
             resize();
-            await new Promise(function (res) {
-                var attempts = 0;
-                var interval = setInterval(function () {
-                    attempts++;
-                    if (window.ZXingBrowser || attempts >= 50) {
-                        clearInterval(interval);
-                        res();
-                    }
-                }, 100);
-            });
+            try {
+                await new Promise(function (res) {
+                    var attempts = 0;
+                    var interval = setInterval(function () {
+                        attempts++;
+                        if (window.ZXingBrowser || attempts >= 50) {
+                            clearInterval(interval);
+                            res();
+                        }
+                    }, 100);
+                });
+            } catch (e) {
+                displayErrorConsole(e, "err");
+            }
         }
+
         if (window.ZXingBrowser) {
             var rotations = [0, 90, 180, 270];
             for (var i = 0; i < rotations.length; i++) {
@@ -486,7 +565,8 @@
                         confirmCode(result.getText());
                         return;
                     }
-                } catch (e) { /* try next rotation */
+                } catch (e) {
+                    displayErrorConsole(e, "warning");
                 }
             }
         } else {

@@ -5,6 +5,7 @@ import streamlit as st
 import requests
 import re
 import math
+import time
 
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -110,12 +111,17 @@ def render_css(p):
 
 div[data-testid="stSpinner"] {{
     position: fixed !important;
-    top: 50% !important;
-    left: 50% !important;
-    transform: translate(-50%, -50%) !important;
+    top: 1rem !important;
+    right: 1rem !important;
+    left: auto !important;
+    transform: none !important;
     z-index: 9999 !important;
-    background: rgba(0,0,0,0.5);
-    padding: 2rem;
+    background: rgba(0, 0, 0, 0.65) !important;
+    padding: 0.5rem 0.9rem !important;
+    border-radius: 999px !important;
+    font-size: 0.75rem !important;
+    backdrop-filter: blur(6px) !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25) !important;
 }}
 
 *, *::before, *::after {{ box-sizing: border-box; }}
@@ -153,6 +159,19 @@ div[data-testid="stVerticalBlock"] {{ gap: 0; background: var(--card) !important
 button[data-testid="stBaseButton-secondary"] {{
   width: 100%;
   margin: 9px;
+}}
+
+/* ── MAIN CONTAINER ── */
+section[data-testid="stMain"] {{
+  padding: 0 !important;
+}}
+section[data-testid="stMain"] > div {{
+  padding: 0 !important;
+}}
+.stMainBlockContainer {{
+  padding: 0 !important;
+  max-width: 480px !important;
+  margin: 0 auto !important;
 }}
 
 /* ── INPUT ── */
@@ -256,15 +275,12 @@ button[data-testid="stBaseButton-secondary"] {{
 }}
 
 /* ── SEARCH PAGE REDESIGN ── */
-
-/* Hero section */
 .search-hero {{
   background: var(--card);
   padding: 32px 0px 28px;
   text-align: center;
-  border-bottom: var(--bdr);
+  margin-bottom: 40px;
 }}
-
 .search-hero-icon {{
   width: 60px;
   height: 60px;
@@ -294,13 +310,11 @@ button[data-testid="stBaseButton-secondary"] {{
   margin: 0 auto;
 }}
 
-/* Input area */
 .search-wrap {{
   background: var(--card);
   padding: 20px 20px 16px;
   border-bottom: var(--bdr);
   margin: 50px
-  margin-bottom: 100px
 }}
 .search-field-label {{
   font-family: var(--mono);
@@ -318,7 +332,40 @@ button[data-testid="stBaseButton-secondary"] {{
   background: var(--card) !important;
 }}
 
-/* Scanner section */
+/* ── FLASH MESSAGE ── */
+.flash-msg {{
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 14px;
+  border-radius: var(--r-sm);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  margin: 8px 20px 0;
+  animation: flash-in 0.25s ease;
+}}
+.flash-warning {{
+  background: rgba(217, 119, 6, 0.10);
+  border: 1px solid rgba(217, 119, 6, 0.35);
+  color: #92400E;
+}}
+.flash-err {{
+  background: rgba(180, 30, 30, 0.08);
+  border: 1px solid rgba(180, 30, 30, 0.30);
+  color: #991B1B;
+}}
+.flash-icon {{
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}}
+@keyframes flash-in {{
+  from {{ opacity: 0; transform: translateY(-4px); }}
+  to   {{ opacity: 1; transform: translateY(0); }}
+}}
+
+/* ── SCANNER ── */
 .scanner-wrap {{
   background: var(--card);
   padding: 16px 20px;
@@ -345,7 +392,7 @@ button[data-testid="stBaseButton-secondary"] {{
   border-style: solid;
 }}
 
-/* Recents section */
+/* ── RECENTS ── */
 .recents-wrap {{
   background: var(--card);
   padding: 16px 20px 20px;
@@ -422,19 +469,6 @@ button[data-testid="stBaseButton-secondary"] {{
   color: var(--sub);
   margin-top: 2px;
 }}
-.recent-score {{
-  font-family: var(--font);
-  font-size: 0.78rem;
-  font-weight: 700;
-  padding: 4px 10px;
-  border-radius: 20px;
-  flex-shrink: 0;
-  letter-spacing: -0.02em;
-}}
-.rs-g {{ background: #F0FDF4; color: #16A34A; }}
-.rs-o {{ background: #FFFBEB; color: #D97706; }}
-.rs-r {{ background: #FFF1F2; color: #DC2626; }}
-
 .recents-empty {{
   font-family: var(--font);
   font-size: 0.8rem;
@@ -444,7 +478,6 @@ button[data-testid="stBaseButton-secondary"] {{
   opacity: 0.6;
 }}
 
-/* Tip banner */
 .search-tip {{
   display: flex;
   align-items: flex-start;
@@ -472,7 +505,7 @@ button[data-testid="stBaseButton-secondary"] {{
   margin-bottom: 0;
 }}
 
-/* ── HERO (product) ── */
+/* ── HERO ── */
 .hero {{
   background: var(--card);
   padding: 15px 20px 16px;
@@ -678,7 +711,6 @@ button[data-testid="stBaseButton-secondary"] {{
 .element-container:has(.scanner-wrap) + .element-container .hero {{
   margin-top: 0 !important;
 }}
-
 .section {{
   background: var(--card);
   margin-top: 6px;
@@ -1068,24 +1100,6 @@ button[data-testid="stBaseButton-secondary"] {{
   color: var(--sub);
   margin-top: 2px;
 }}
-.hist-score {{
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  flex-shrink: 0;
-  min-width: 46px;
-}}
-.hist-score-n {{
-  font-family: var(--font);
-  font-size: 1.05rem;
-  font-weight: 800;
-  line-height: 1;
-}}
-.hist-score-d {{
-  font-family: var(--mono);
-  font-size: 0.55rem;
-  color: var(--sub);
-}}
 
 /* ── MISC ── */
 .src-badge {{
@@ -1137,7 +1151,6 @@ button[data-testid="stBaseButton-secondary"] {{
   left: 0;
   z-index: 100;
 }}
-
 .ps-footer-btn {{
   display: flex;
   flex-direction: column;
@@ -1333,38 +1346,30 @@ def compute_fsa_score(p):
     }
 
 
-# ── FSA CALCULATORS ────────────────────────────────────────────────
+# ── FSA CALCULATORS ──────────────────────────────────────────
 def a_en_calculator(kj: int) -> int:
     return min(10, int(kj / 335))
-
 
 def a_sug_calculator(sug: int) -> int:
     return min(10, int(sug / 4.5))
 
-
 def a_sat_calculator(sat: int) -> int:
     return max(0, min(10, int(sat) - 1))
 
-
 def fvn_calculator(fvn: int) -> int:
     if fvn <= 40:
-        c_fvn = 0
+        return 0
     elif fvn <= 60:
-        c_fvn = 1
+        return 1
     elif fvn <= 80:
-        c_fvn = 2
-    else:
-        c_fvn = 5
-    return c_fvn
-
+        return 2
+    return 5
 
 def prot_calculator(prot: int) -> int:
     return min(5, int(prot / 1.6) - 1)
 
-
 def fiber_calculator(fiber: int) -> int:
     return next((i for i, t in enumerate([0.9, 1.9, 2.8, 3.7, 4.7]) if fiber <= t), 5)
-
 
 def sodium_calculator(sodium: int) -> int:
     return min(10, int(sodium / 90))
@@ -1482,19 +1487,12 @@ def get_suggestions(cats: tuple, current_score, current_ns: str = ""):
     candidates = [c for c in reversed(cats) if c.startswith("en:") and len(c) > 5]
     if not candidates:
         return ("no_cat", str(cats[:3]))
-
     last_err = ("no_cat", "")
-
     for cat in candidates[:3]:
         try:
             r = _HTTP.get(
                 "https://world.openfoodfacts.org/api/v2/search",
-                params={
-                    "categories_tags": cat,
-                    "sort_by": "unique_scans_n",
-                    "page_size": 30,
-                    "fields": _SEARCH_FIELDS,
-                },
+                params={"categories_tags": cat, "sort_by": "unique_scans_n", "page_size": 20, "fields": _SEARCH_FIELDS},
                 timeout=(4, 12),
             )
             if r.status_code != 200:
@@ -1518,20 +1516,14 @@ def get_suggestions(cats: tuple, current_score, current_ns: str = ""):
         except Exception as ex:
             last_err = ("exception", str(ex)[:80])
             continue
-
     if current_ns in "cdez" or current_score < 50:
         broad_cats = candidates[-3:]
         for cat in broad_cats:
             try:
                 r = _HTTP.get(
                     "https://world.openfoodfacts.org/api/v2/search",
-                    params={
-                        "categories_tags": cat,
-                        "nutrition_grades_tags": "a",
-                        "sort_by": "unique_scans_n",
-                        "page_size": 30,
-                        "fields": _SEARCH_FIELDS,
-                    },
+                    params={"categories_tags": cat, "nutrition_grades_tags": "a", "sort_by": "unique_scans_n",
+                            "page_size": 30, "fields": _SEARCH_FIELDS},
                     timeout=(4, 12),
                 )
                 if r.status_code != 200:
@@ -1552,14 +1544,12 @@ def get_suggestions(cats: tuple, current_score, current_ns: str = ""):
             except Exception as ex:
                 last_err = ("exception", str(ex)[:80])
                 continue
-
     return last_err
 
 
 # ── HELPERS ──────────────────────────────────────────────────
 def e(s):
     return str(s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
 
 def nutriscore_html(ns):
     letters, colors = ["A", "B", "C", "D", "E"], ["nsa-c", "nsb-c", "nsc-c", "nsd-c", "nse-c"]
@@ -1568,13 +1558,11 @@ def nutriscore_html(ns):
         html += f'<div class="ns-l {c}{"  active" if l.lower() == ns else ""}">{l}</div>'
     return html + "</div>"
 
-
 def nova_html(nova):
     html = '<div class="nova-row">'
     for i, c in enumerate(["n1c", "n2c", "n3c", "n4c"], 1):
         html += f'<div class="nova-dot {c}{"  active" if nova == i else ""}">{i}</div>'
     return html + "</div>"
-
 
 def macro_svg(fat, carbs, prot):
     tot = fat * 9 + carbs * 4 + prot * 4
@@ -1583,19 +1571,15 @@ def macro_svg(fat, carbs, prot):
     pf = fat * 9 / tot * 100
     pc = carbs * 4 / tot * 100
     pp = prot * 4 / tot * 100
-
     def sl(s, en, col):
         if en - s >= 100:
             en -= 0.01
         a = math.radians(s / 100 * 360 - 90)
         b = math.radians(en / 100 * 360 - 90)
-        r = 52
-        cx = 60
-        cy = 60
+        r = 52; cx = 60; cy = 60
         x1, y1 = cx + r * math.cos(a), cy + r * math.sin(a)
         x2, y2 = cx + r * math.cos(b), cy + r * math.sin(b)
         return f'<path d="M{cx},{cy} L{x1:.1f},{y1:.1f} A{r},{r} 0 {1 if en - s > 50 else 0},1 {x2:.1f},{y2:.1f} Z" fill="{col}"/>'
-
     svg = (f'<svg width="108" height="108" viewBox="0 0 120 120">'
            f'{sl(0, pf, "#DC2626")}{sl(pf, pf + pc, "#D97706")}{sl(pf + pc, pf + pc + pp, "#16A34A")}'
            f'<circle cx="60" cy="60" r="30" fill="var(--bg)"/>'
@@ -1608,13 +1592,11 @@ def macro_svg(fat, carbs, prot):
            f'<span style="color:#16A34A">●</span> Prot {prot:.1f}g ({pp:.0f}%)</div>')
     return f'<div class="chart-wrap">{svg}{leg}</div>'
 
-
 def ha(txt):
     for a in ['LATTE', 'GLUTINE', 'FRUMENTO', 'GRANO', 'UOVA', 'SOIA', 'ARACHIDI', 'NOCI',
               'MANDORLE', 'NOCCIOLE', 'SESAMO', 'SENAPE', 'SEDANO', 'LUPINI', 'CROSTACEI', 'PESCE', 'SOLFITI']:
         txt = re.sub(f'\\b{a}\\b', f'<span class="ia">{a}</span>', txt, flags=re.IGNORECASE)
     return txt
-
 
 def nf_bar(name, val, mx, unit, color):
     pct = min(100, (val / mx) * 100) if val else 0
@@ -1623,7 +1605,6 @@ def nf_bar(name, val, mx, unit, color):
             f'<div class="nf-bar-bg"><div class="nf-bar" style="width:{pct}%;background:{color};"></div></div>'
             f'<div class="nf-val">{vs}</div></div>')
 
-
 def factor_row(icon, name, desc, dot):
     fi = {"dot-g": "fi-green", "dot-o": "fi-orange", "dot-r": "fi-red"}.get(dot, "fi-orange")
     return (f'<div class="factor"><div class="factor-icon {fi}">{icon}</div>'
@@ -1631,12 +1612,10 @@ def factor_row(icon, name, desc, dot):
             f'<div class="factor-desc">{desc}</div></div>'
             f'<div class="dot {dot}"></div></div>')
 
-
 def bar_color(v, low, high):
     if v is None:
         return "var(--bar-bg)"
     return "#16A34A" if v <= low else "#D97706" if v <= high else "#DC2626"
-
 
 def score_color(s):
     if s is None:
@@ -1662,28 +1641,57 @@ def scanner_html(pal):
     return (
         f'<iframe src="app/static/scanner.html{params}" '
         f'allow="camera" '
-        f'style="width:100%;height:90px;border:none;overflow:hidden;" '
+        f'style="width:100%;height:350px;border:none;overflow:hidden;" '
         f'id="scanner-iframe">'
         f'</iframe>'
     )
 
 
-# ── RENDER SEARCH PAGE ────────────────────────────────────────
-def render_search_page(barcode, pal):
-    """Renders the redesigned search tab with hero, input, scanner, and recents."""
+# ── FLASH MESSAGE ─────────────────────────────────────────────
+def flash_html(message: str, flash_type: str) -> str:
+    """Génère le HTML d'un message flash inline (warning ou err)."""
+    icon = "⚠️" if flash_type == "warning" else "❌"
+    return (
+        f'<div class="flash-msg flash-{flash_type}">'
+        f'<span class="flash-icon">{icon}</span>'
+        f'<span>{message}</span>'
+        f'</div>'
+    )
 
+
+def display_flash(message: str, flash_type: str, ph) -> None:
+    """Affiche un message flash dans le placeholder, disparaît après 5s."""
+    console_fn = console_warn if flash_type == "warning" else console_error
+    console_fn(message)
+    ph.markdown(flash_html(message, flash_type), unsafe_allow_html=True)
+    time.sleep(4)
+    ph.empty()
+
+
+def console_warn(msg):
+    console_log("WARN", msg)
+
+def console_error(msg):
+    console_log("ERROR", msg)
+
+def console_log(level, msg):
+    # Log côté serveur Python — visible dans le terminal Streamlit
+    print(f"[{level}] {msg}")
+
+
+# ── RENDER SEARCH PAGE ────────────────────────────────────────
+def render_search_page(barcode, pal, flash_placeholder):
     # Hero
     st.markdown(
         f'<div class="search-hero">'
-        f'<div class="search-hero-icon">🔍</div>'
+        f'<div class="search-hero-icon">📊</div>'
         f'<div class="search-hero-title">Analizza un prodotto</div>'
         f'<div class="search-hero-sub">Scansiona il codice a barre o inserisci il codice EAN per ottenere il punteggio nutrizionale.</div>'
         f'</div>',
         unsafe_allow_html=True
     )
 
-    # Input
-    st.markdown('<div>', unsafe_allow_html=True)
+    # Input + bouton
     ci, cb = st.columns([4, 1])
     with ci:
         st.markdown('<div class="bc-input">', unsafe_allow_html=True)
@@ -1693,22 +1701,23 @@ def render_search_page(barcode, pal):
         st.markdown('</div>', unsafe_allow_html=True)
     with cb:
         clicked = st.button("Cerca", key="btn_search")
-    st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── Placeholder flash — juste sous le bouton Cerca
+    flash_placeholder.empty()
 
     if clicked and bc_input.strip() and bc_input.strip() != barcode:
         st.query_params.clear()
-        st.query_params.update({"barcode": bc_input.strip()})
+        st.query_params["barcode"] = bc_input.strip()
         st.rerun()
 
     # Scanner
     st.markdown(
         f'<div class="scanner-wrap">'
-        f'<div class="scanner-field-label">Scansione fotocamera</div>'
-        f'<div class="inner">',
+        f'<div class="scanner-field-label">Scansione fotocamera</div>',
         unsafe_allow_html=True
     )
     st.markdown(scanner_html(pal), unsafe_allow_html=True)
-    st.markdown('</div></div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
     # Recents
     history_products = localStorage.getItem("products") or []
@@ -1718,7 +1727,6 @@ def render_search_page(barcode, pal):
         f'<div class="recents-label">Recenti</div>'
         f'</div>'
     )
-
     if not history_products:
         recent_html += '<div class="recents-empty">Nessun prodotto ancora analizzato.</div>'
     else:
@@ -1728,13 +1736,10 @@ def render_search_page(barcode, pal):
             brand = e(p.get("brand") or p.get("brands", ""))
             img = p.get("img_url") or ""
             added = p.get("addedDate", "")
-
-            # Try to show score pill if cached — just show date otherwise
             if img:
                 thumb_html = f'<div class="recent-thumb"><img src="{img}" onerror="this.style.display=\'none\'" /></div>'
             else:
                 thumb_html = '<div class="recent-thumb">📦</div>'
-
             recent_html += (
                 f'<a class="recent-item" href="?barcode={code}" target="_top">'
                 f'{thumb_html}'
@@ -1744,8 +1749,6 @@ def render_search_page(barcode, pal):
                 f'</div>'
                 f'</a>'
             )
-
-    # Tip
     recent_html += (
         f'<div class="search-tip">'
         f'<div class="search-tip-icon">ℹ️</div>'
@@ -1754,7 +1757,6 @@ def render_search_page(barcode, pal):
         f'</div>'
         f'</div>'
     )
-
     st.markdown(recent_html, unsafe_allow_html=True)
 
 
@@ -1769,10 +1771,8 @@ def render_food(p, score, pos, neg, details, pal):
     label = pal['label']
     medal = pal['medal']
     sc_fg = pal['score_fg']
-
     img_html = (f'<img class="hero-img" src="{img}" onerror="this.style.display=\'none\'">'
                 if img else '<div class="hero-img-ph">📦</div>')
-
     circ = 2 * math.pi * 27
     dash = circ * score / 100
     ring_svg = (f'<svg width="68" height="68" viewBox="0 0 68 68" style="transform:rotate(-90deg)">'
@@ -1780,7 +1780,6 @@ def render_food(p, score, pos, neg, details, pal):
                 f'<circle cx="34" cy="34" r="27" fill="none" stroke="{sc_fg}" stroke-width="5"'
                 f' stroke-dasharray="{dash:.1f} {circ:.1f}" stroke-linecap="round"/>'
                 f'</svg>')
-
     st.markdown(
         f'<div class="hero" id="product-presentation">'
         f'<div class="hero-top">{img_html}'
@@ -1806,22 +1805,18 @@ def render_food(p, score, pos, neg, details, pal):
         f'</div>'
         f'<div class="score-track"><div class="score-fill" style="width:{score}%;"></div></div>'
         f'</div>', unsafe_allow_html=True)
-
     if pos:
         rows = "".join([factor_row(ic, nm, dc, dt) for ic, nm, dc, dt in pos])
         st.markdown(
             f'<div class="section"><div class="section-hd"><div class="section-title">Positivo</div><div class="section-badge">per 100g</div></div>{rows}</div>',
             unsafe_allow_html=True)
-
     if neg:
         rows = "".join([factor_row(ic, nm, dc, dt) for ic, nm, dc, dt in neg])
         st.markdown(
             f'<div class="section"><div class="section-hd"><div class="section-title">Negativo</div><div class="section-badge">per 100g</div></div>{rows}</div>',
             unsafe_allow_html=True)
-
     add_html = render_additivi(p)
     st.markdown(f'<div class="section">{add_html}</div>', unsafe_allow_html=True)
-
     ing = (p.get("ingredients_text") or p.get("ingredients_text_it") or
            p.get("ingredients_text_en") or p.get("ingredients_text_fr") or "").strip()
     if not ing and p.get("ingredients"):
@@ -1839,7 +1834,6 @@ def render_food(p, score, pos, neg, details, pal):
     st.markdown(
         f'<div class="section"><div class="section-hd"><div class="section-title">Ingredienti</div></div>{ih}</div>',
         unsafe_allow_html=True)
-
     fat = n.get("fat_100g")
     sat = n.get("saturated-fat_100g")
     carbs = n.get("carbohydrates_100g")
@@ -1848,7 +1842,6 @@ def render_food(p, score, pos, neg, details, pal):
     prot = n.get("proteins_100g")
     salt = n.get("salt_100g")
     kcal_v = details.get("kcal")
-
     nf = (nf_bar("Grassi", fat, 30, "g", bar_color(fat, 3, 17.5)) +
           nf_bar("↳ Grassi saturi", sat, 10, "g", bar_color(sat, 1.5, 5)) +
           nf_bar("Carboidrati", carbs, 80, "g", bar_color(carbs, 20, 60)) +
@@ -1856,7 +1849,6 @@ def render_food(p, score, pos, neg, details, pal):
           nf_bar("Fibre", fiber, 10, "g", "#16A34A" if fiber and fiber >= 3 else "#D97706") +
           nf_bar("Proteine", prot, 30, "g", "#16A34A" if prot and prot >= 8 else "#D97706") +
           nf_bar("Sale", salt, 3, "g", bar_color(salt, 0.3, 1.5)))
-
     chart = macro_svg(fat or 0, carbs or 0, prot or 0)
     kcal_s = (f'<div class="kcal-row">'
               f'<span class="kcal-label">Energia per 100g</span>'
@@ -1904,12 +1896,7 @@ def render_alternatives(suggestions, pal):
             f'<div class="section-hd"><div class="section-title">Alternative Migliori</div></div>'
             f'<div class="section-sub">Prodotti simili con score FSA superiore</div>')
     for s, prod in suggestions:
-        if s >= 60:
-            bc = "#16A34A"
-        elif s >= 45:
-            bc = "#D97706"
-        else:
-            bc = "#DC2626"
+        bc = "#16A34A" if s >= 60 else "#D97706" if s >= 45 else "#DC2626"
         name = e((prod.get("product_name") or "")[:45])
         brand = e((prod.get("brands") or "")[:28])
         code = prod.get("code", "")
@@ -1961,26 +1948,17 @@ def render_generic(p, source, pal):
 # ── HISTORY RENDER ───────────────────────────────────────────
 def render_history():
     history_products = localStorage.getItem("products") or []
-
     if len(history_products) == 0:
         st.warning("Nessun prodotto nella cronologia")
         return
-
     rows = []
-
     for p in history_products:
         code = p.get("code", "")
         added_date = p.get("addedDate")
         name = p.get("name") or p.get("product_name") or "Prodotto"
         brand = p.get("brand") or p.get("brands", "")
         img = p.get("img_url") or p.get("image_url") or p.get("image_front_url") or ""
-
-        img_html = (
-            f'<img class="hist-img" src="{img}" />'
-            if img else
-            '<div class="hist-img-ph">📦</div>'
-        )
-
+        img_html = (f'<img class="hist-img" src="{img}" />' if img else '<div class="hist-img-ph">📦</div>')
         rows.append(f"""
             <a class="hist-item" href="?barcode={code}" target="_top">
                 {img_html}
@@ -1991,7 +1969,6 @@ def render_history():
                 </div>
             </a>
         """)
-
     st.markdown("".join(rows), unsafe_allow_html=True)
 
 
@@ -2000,16 +1977,15 @@ def main():
     params = st.query_params
     barcode = normalize_query_value(params.get("barcode", ""))
     tab = normalize_query_value(params.get("tab", ""))
-    msg = ""
 
     if not barcode and tab == "":
         tab = "search"
 
-    # ── 1. Default CSS
+    # ── 1. CSS par défaut
     pal = get_palette(45)
     st.markdown(render_css(pal), unsafe_allow_html=True)
 
-    # ── 2. Fixed header
+    # ── 2. Header fixe
     st.markdown(
         f'<div class="ps-header">'
         f'<div style="display:flex;align-items:center;gap:9px;">'
@@ -2018,10 +1994,13 @@ def main():
         f'Product<span>Scan</span>'
         f'</div>'
         f'</div>'
-        f'<div class="ps-tag">Nutri</div>'
         f'</div>', unsafe_allow_html=True)
 
-    # ── 3. Fetch product (if barcode in URL)
+    # ── 3. Placeholder flash — positionné juste après le header,
+    #       sera utilisé par render_search_page sous le bouton Cerca
+    flash_ph = st.empty()
+
+    # ── 4. Fetch produit
     product = None
     did = None
     source = None
@@ -2044,47 +2023,45 @@ def main():
             st.markdown(render_css(pal), unsafe_allow_html=True)
             add_to_history(product)
 
-    # ── 4. Tab content
-    if tab == "search":
-        render_search_page(barcode, pal)
+    # ── 5. Contenu tab
+    if tab == "search" or not st.query_params:
+        render_search_page(barcode, pal, flash_ph)
 
     if tab == "history":
         st.markdown('<div class="history">', unsafe_allow_html=True)
         render_history()
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # ── 5. Footer nav
+    # ── 6. Footer nav
     st.markdown(
         f'<div class="ps-footer">'
-
         f'<a href="?tab=search" target="_top" '
         f'class="ps-footer-btn {"active" if tab == "search" else ""}">'
         f'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'
         f'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>'
         f'<span>Cerca</span></a>'
-
         f'<a href="?tab=history" target="_top" '
         f'class="ps-footer-btn {"active" if tab == "history" else ""}">'
         f'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'
         f'<path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/>'
         f'<rect x="9" y="3" width="6" height="4" rx="1"/></svg>'
         f'<span>Cronologia</span></a>'
-
         f'</div>',
         unsafe_allow_html=True)
 
-    # ── 6. Product display
+    # ── 7. Affichage produit
     if product:
         if did == "food":
             render_food(product, score, pos, neg, details, pal)
             with st.spinner("Ricerca alternative…"):
+                sugg_start = time.perf_counter()
                 sugg = get_suggestions(
                     tuple(product.get("categories_tags") or []),
                     score,
                     (product.get("nutriscore_grade") or "").lower()
                 )
-            msg = render_alternatives(sugg, pal)
-
+                print("time for suggestions:", time.perf_counter() - sugg_start)
+            render_alternatives(sugg, pal)
         elif did == "beauty":
             st.markdown(
                 f'<div class="section"><div class="section-hd">'
@@ -2095,12 +2072,9 @@ def main():
             render_generic(product, source, pal)
 
     elif barcode and not product:
-        st.markdown(
-            f'<div class="ps-err">⚠ Prodotto non trovato: <strong>{e(barcode)}</strong></div>',
-            unsafe_allow_html=True)
+        display_flash("Prodotto non trovato !", "warning", flash_ph)
 
-    if msg is None or tab == "history" or tab == "search":
-        st.markdown('<div class="content-end"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="content-end"></div>', unsafe_allow_html=True)
 
 
 if __name__ == "__main__":
