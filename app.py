@@ -332,39 +332,6 @@ section[data-testid="stMain"] > div {{
   background: var(--card) !important;
 }}
 
-/* ── FLASH MESSAGE ── */
-.flash-msg {{
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 10px 14px;
-  border-radius: var(--r-sm);
-  font-family: var(--mono);
-  font-size: 0.68rem;
-  letter-spacing: 0.02em;
-  line-height: 1.4;
-  margin: 8px 20px 0;
-  animation: flash-in 0.25s ease;
-}}
-.flash-warning {{
-  background: rgba(217, 119, 6, 0.10);
-  border: 1px solid rgba(217, 119, 6, 0.35);
-  color: #92400E;
-}}
-.flash-err {{
-  background: rgba(180, 30, 30, 0.08);
-  border: 1px solid rgba(180, 30, 30, 0.30);
-  color: #991B1B;
-}}
-.flash-icon {{
-  font-size: 0.85rem;
-  flex-shrink: 0;
-}}
-@keyframes flash-in {{
-  from {{ opacity: 0; transform: translateY(-4px); }}
-  to   {{ opacity: 1; transform: translateY(0); }}
-}}
-
 /* ── SCANNER ── */
 .scanner-wrap {{
   background: var(--card);
@@ -1647,26 +1614,6 @@ def scanner_html(pal):
     )
 
 
-# ── FLASH MESSAGE ─────────────────────────────────────────────
-def flash_html(message: str, flash_type: str) -> str:
-    """Génère le HTML d'un message flash inline (warning ou err)."""
-    icon = "⚠️" if flash_type == "warning" else "❌"
-    return (
-        f'<div class="flash-msg flash-{flash_type}">'
-        f'<span class="flash-icon">{icon}</span>'
-        f'<span>{message}</span>'
-        f'</div>'
-    )
-
-
-def display_flash(message: str, flash_type: str, ph) -> None:
-    """Affiche un message flash dans le placeholder, disparaît après 5s."""
-    console_fn = console_warn if flash_type == "warning" else console_error
-    console_fn(message)
-    ph.markdown(flash_html(message, flash_type), unsafe_allow_html=True)
-    time.sleep(4)
-    ph.empty()
-
 
 def console_warn(msg):
     console_log("WARN", msg)
@@ -1680,7 +1627,7 @@ def console_log(level, msg):
 
 
 # ── RENDER SEARCH PAGE ────────────────────────────────────────
-def render_search_page(barcode, pal, flash_placeholder):
+def render_search_page(barcode, pal):
     # Hero
     st.markdown(
         f'<div class="search-hero">'
@@ -1701,9 +1648,6 @@ def render_search_page(barcode, pal, flash_placeholder):
         st.markdown('</div>', unsafe_allow_html=True)
     with cb:
         clicked = st.button("Cerca", key="btn_search")
-
-    # ── Placeholder flash — juste sous le bouton Cerca
-    flash_placeholder.empty()
 
     if clicked and bc_input.strip() and bc_input.strip() != barcode:
         st.query_params.clear()
@@ -1978,9 +1922,6 @@ def main():
     barcode = normalize_query_value(params.get("barcode", ""))
     tab = normalize_query_value(params.get("tab", ""))
 
-    if not barcode and tab == "":
-        tab = "search"
-
     # ── 1. CSS par défaut
     pal = get_palette(45)
     st.markdown(render_css(pal), unsafe_allow_html=True)
@@ -1996,9 +1937,6 @@ def main():
         f'</div>'
         f'</div>', unsafe_allow_html=True)
 
-    # ── 3. Placeholder flash — positionné juste après le header,
-    #       sera utilisé par render_search_page sous le bouton Cerca
-    flash_ph = st.empty()
 
     # ── 4. Fetch produit
     product = None
@@ -2024,8 +1962,8 @@ def main():
             add_to_history(product)
 
     # ── 5. Contenu tab
-    if tab == "search" or not st.query_params:
-        render_search_page(barcode, pal, flash_ph)
+    if not st.query_params:
+        render_search_page(barcode, pal)
 
     if tab == "history":
         st.markdown('<div class="history">', unsafe_allow_html=True)
@@ -2035,7 +1973,7 @@ def main():
     # ── 6. Footer nav
     st.markdown(
         f'<div class="ps-footer">'
-        f'<a href="?tab=search" target="_top" '
+        f'<a href="/" target="_top" '
         f'class="ps-footer-btn {"active" if tab == "search" else ""}">'
         f'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'
         f'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>'
@@ -2072,7 +2010,7 @@ def main():
             render_generic(product, source, pal)
 
     elif barcode and not product:
-        display_flash("Prodotto non trovato !", "warning", flash_ph)
+        st.error("Prodotto non trovato !")
 
     st.markdown('<div class="content-end"></div>', unsafe_allow_html=True)
 
