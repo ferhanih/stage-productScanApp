@@ -127,13 +127,24 @@ div[data-testid="stSpinner"] {{
 *, *::before, *::after {{ box-sizing: border-box; }}
 
 html, body, .stApp {{
-  background: var(--bg) !important;
+  background: var(--card) !important;
   color: var(--text) !important;
   font-family: var(--font) !important;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   transition: background 0.6s ease;
 }}
+
+#errMsg {{
+            font-size: 0.66rem;
+            color: red;
+            padding: 7px 0 0;
+            text-align: center;
+            font-family: 'DM Mono', monospace;
+            letter-spacing: 0.03em;
+            opacity: .75;
+            min-height: 1.4em;
+        }}
 
 /* Hide Streamlit chrome */
 .stApp > header, #MainMenu, footer,
@@ -236,12 +247,11 @@ section[data-testid="stMain"] > div {{
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   padding: 14px 20px 16px 20px;
   border-bottom: var(--bdr);
-  display: flex;
+  display: block;
   align-items: center;
   justify-content: space-between;
   position: sticky;
   top: 0;
-  z-index: 100;
 }}
 .ps-logo {{
   font-family: var(--font);
@@ -279,7 +289,7 @@ section[data-testid="stMain"] > div {{
   background: var(--card);
   padding: 32px 0px 28px;
   text-align: center;
-  margin-bottom: 40px;
+  margin-bottom: 80px;
 }}
 .search-hero-icon {{
   width: 60px;
@@ -1180,6 +1190,7 @@ section[data-testid="stMain"] > div {{
 div[data-testid="stVerticalBlock"] {{
   gap: 0 !important;
   background: var(--card) !important;
+  margin-bottom: 15px !importan;
 }}
 .element-container {{
   margin: 0 !important;
@@ -1317,11 +1328,14 @@ def compute_fsa_score(p):
 def a_en_calculator(kj: int) -> int:
     return min(10, int(kj / 335))
 
+
 def a_sug_calculator(sug: int) -> int:
     return min(10, int(sug / 4.5))
 
+
 def a_sat_calculator(sat: int) -> int:
     return max(0, min(10, int(sat) - 1))
+
 
 def fvn_calculator(fvn: int) -> int:
     if fvn <= 40:
@@ -1332,11 +1346,14 @@ def fvn_calculator(fvn: int) -> int:
         return 2
     return 5
 
+
 def prot_calculator(prot: int) -> int:
     return min(5, int(prot / 1.6) - 1)
 
+
 def fiber_calculator(fiber: int) -> int:
     return next((i for i, t in enumerate([0.9, 1.9, 2.8, 3.7, 4.7]) if fiber <= t), 5)
+
 
 def sodium_calculator(sodium: int) -> int:
     return min(10, int(sodium / 90))
@@ -1518,6 +1535,7 @@ def get_suggestions(cats: tuple, current_score, current_ns: str = ""):
 def e(s):
     return str(s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
+
 def nutriscore_html(ns):
     letters, colors = ["A", "B", "C", "D", "E"], ["nsa-c", "nsb-c", "nsc-c", "nsd-c", "nse-c"]
     html = '<div class="ns-row">'
@@ -1525,11 +1543,13 @@ def nutriscore_html(ns):
         html += f'<div class="ns-l {c}{"  active" if l.lower() == ns else ""}">{l}</div>'
     return html + "</div>"
 
+
 def nova_html(nova):
     html = '<div class="nova-row">'
     for i, c in enumerate(["n1c", "n2c", "n3c", "n4c"], 1):
         html += f'<div class="nova-dot {c}{"  active" if nova == i else ""}">{i}</div>'
     return html + "</div>"
+
 
 def macro_svg(fat, carbs, prot):
     tot = fat * 9 + carbs * 4 + prot * 4
@@ -1538,15 +1558,19 @@ def macro_svg(fat, carbs, prot):
     pf = fat * 9 / tot * 100
     pc = carbs * 4 / tot * 100
     pp = prot * 4 / tot * 100
+
     def sl(s, en, col):
         if en - s >= 100:
             en -= 0.01
         a = math.radians(s / 100 * 360 - 90)
         b = math.radians(en / 100 * 360 - 90)
-        r = 52; cx = 60; cy = 60
+        r = 52;
+        cx = 60;
+        cy = 60
         x1, y1 = cx + r * math.cos(a), cy + r * math.sin(a)
         x2, y2 = cx + r * math.cos(b), cy + r * math.sin(b)
         return f'<path d="M{cx},{cy} L{x1:.1f},{y1:.1f} A{r},{r} 0 {1 if en - s > 50 else 0},1 {x2:.1f},{y2:.1f} Z" fill="{col}"/>'
+
     svg = (f'<svg width="108" height="108" viewBox="0 0 120 120">'
            f'{sl(0, pf, "#DC2626")}{sl(pf, pf + pc, "#D97706")}{sl(pf + pc, pf + pc + pp, "#16A34A")}'
            f'<circle cx="60" cy="60" r="30" fill="var(--bg)"/>'
@@ -1559,11 +1583,13 @@ def macro_svg(fat, carbs, prot):
            f'<span style="color:#16A34A">●</span> Prot {prot:.1f}g ({pp:.0f}%)</div>')
     return f'<div class="chart-wrap">{svg}{leg}</div>'
 
+
 def ha(txt):
     for a in ['LATTE', 'GLUTINE', 'FRUMENTO', 'GRANO', 'UOVA', 'SOIA', 'ARACHIDI', 'NOCI',
               'MANDORLE', 'NOCCIOLE', 'SESAMO', 'SENAPE', 'SEDANO', 'LUPINI', 'CROSTACEI', 'PESCE', 'SOLFITI']:
         txt = re.sub(f'\\b{a}\\b', f'<span class="ia">{a}</span>', txt, flags=re.IGNORECASE)
     return txt
+
 
 def nf_bar(name, val, mx, unit, color):
     pct = min(100, (val / mx) * 100) if val else 0
@@ -1572,6 +1598,7 @@ def nf_bar(name, val, mx, unit, color):
             f'<div class="nf-bar-bg"><div class="nf-bar" style="width:{pct}%;background:{color};"></div></div>'
             f'<div class="nf-val">{vs}</div></div>')
 
+
 def factor_row(icon, name, desc, dot):
     fi = {"dot-g": "fi-green", "dot-o": "fi-orange", "dot-r": "fi-red"}.get(dot, "fi-orange")
     return (f'<div class="factor"><div class="factor-icon {fi}">{icon}</div>'
@@ -1579,10 +1606,12 @@ def factor_row(icon, name, desc, dot):
             f'<div class="factor-desc">{desc}</div></div>'
             f'<div class="dot {dot}"></div></div>')
 
+
 def bar_color(v, low, high):
     if v is None:
         return "var(--bar-bg)"
     return "#16A34A" if v <= low else "#D97706" if v <= high else "#DC2626"
+
 
 def score_color(s):
     if s is None:
@@ -1614,12 +1643,13 @@ def scanner_html(pal):
     )
 
 
-
 def console_warn(msg):
     console_log("WARN", msg)
 
+
 def console_error(msg):
     console_log("ERROR", msg)
+
 
 def console_log(level, msg):
     # Log côté serveur Python — visible dans le terminal Streamlit
@@ -1627,7 +1657,7 @@ def console_log(level, msg):
 
 
 # ── RENDER SEARCH PAGE ────────────────────────────────────────
-def render_search_page(barcode, pal):
+def render_search_page(barcode="", pal=""):
     # Hero
     st.markdown(
         f'<div class="search-hero">'
@@ -1937,6 +1967,7 @@ def main():
         f'</div>'
         f'</div>', unsafe_allow_html=True)
 
+    errorContainer = st.empty()
 
     # ── 4. Fetch produit
     product = None
@@ -1947,6 +1978,7 @@ def main():
     neg = []
     details = {}
 
+    # If Barcode in the URL
     if barcode:
         pre_ph = st.empty()
         with st.spinner("Ricerca prodotto"):
@@ -1961,16 +1993,17 @@ def main():
             st.markdown(render_css(pal), unsafe_allow_html=True)
             add_to_history(product)
 
-    # ── 5. Contenu tab
+    # If URL = "/"
     if not st.query_params:
         render_search_page(barcode, pal)
 
+    # If history present in the URL
     if tab == "history":
         st.markdown('<div class="history">', unsafe_allow_html=True)
         render_history()
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # ── 6. Footer nav
+    # Footer nav
     st.markdown(
         f'<div class="ps-footer">'
         f'<a href="/" target="_top" '
@@ -1987,7 +2020,7 @@ def main():
         f'</div>',
         unsafe_allow_html=True)
 
-    # ── 7. Affichage produit
+    # Display product
     if product:
         if did == "food":
             render_food(product, score, pos, neg, details, pal)
@@ -2010,7 +2043,15 @@ def main():
             render_generic(product, source, pal)
 
     elif barcode and not product:
-        st.error("Prodotto non trovato !")
+        with errorContainer:
+            st.markdown(
+                f'<div class="search-hero">'
+                f'<div class="search-hero-icon">❌</div>'
+                f'<div class="search-hero-title">Prodotto non trovato !</div>'
+                '<div><a href="/" target="_top">← Torna alla ricerca</a></div>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
 
     st.markdown('<div class="content-end"></div>', unsafe_allow_html=True)
 
